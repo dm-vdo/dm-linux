@@ -48,6 +48,7 @@
 #include "data-vio.h"
 #include "dedupe.h"
 #include "encodings.h"
+#include "funnel-workqueue.h"
 #include "io-submitter.h"
 #include "logical-zone.h"
 #include "packer.h"
@@ -58,7 +59,6 @@
 #include "statistics.h"
 #include "status-codes.h"
 #include "vio.h"
-#include "work-queue.h"
 
 
 enum { PARANOID_THREAD_CONSISTENCY_CHECKS = 0 };
