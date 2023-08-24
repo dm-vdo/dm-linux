@@ -1576,25 +1576,25 @@ initialize_page_cache(struct page_cache *cache,
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(VOLUME_CACHE_MAX_QUEUED_READS,
+	result = uds_allocate(VOLUME_CACHE_MAX_QUEUED_READS,
 			      struct queued_read,
 			      "volume read queue",
 			      &cache->read_queue);
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(cache->zone_count,
+	result = uds_allocate(cache->zone_count,
 			      struct search_pending_counter,
 			      "Volume Cache Zones",
 			      &cache->search_pending_counters);
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(cache->indexable_pages, u16, "page cache index", &cache->index);
+	result = uds_allocate(cache->indexable_pages, u16, "page cache index", &cache->index);
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(cache->cache_slots,
+	result = uds_allocate(cache->cache_slots,
 			      struct cached_page,
 			      "page cache cache",
 			      &cache->cache);
@@ -1621,7 +1621,7 @@ int uds_make_volume(const struct configuration *config,
 	unsigned int reserved_buffers;
 	int result;
 
-	result = UDS_ALLOCATE(1, struct volume, "volume", &volume);
+	result = uds_allocate(1, struct volume, "volume", &volume);
 	if (result != UDS_SUCCESS)
 		return result;
 
@@ -1658,7 +1658,7 @@ int uds_make_volume(const struct configuration *config,
 		return result;
 	}
 
-	result = UDS_ALLOCATE(geometry->records_per_page,
+	result = uds_allocate(geometry->records_per_page,
 			      const struct uds_volume_record *,
 			      "record pointers",
 			      &volume->record_pointers);
@@ -1717,7 +1717,7 @@ int uds_make_volume(const struct configuration *config,
 		return result;
 	}
 
-	result = UDS_ALLOCATE(config->read_threads,
+	result = uds_allocate(config->read_threads,
 			      struct thread *,
 			      "reader threads",
 			      &volume->reader_threads);

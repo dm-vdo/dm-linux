@@ -218,7 +218,7 @@ static int __must_check make_empty_index_session(struct uds_index_session **inde
 	int result;
 	struct uds_index_session *session;
 
-	result = UDS_ALLOCATE(1, struct uds_index_session, __func__, &session);
+	result = uds_allocate(1, struct uds_index_session, __func__, &session);
 	if (result != UDS_SUCCESS)
 		return result;
 
