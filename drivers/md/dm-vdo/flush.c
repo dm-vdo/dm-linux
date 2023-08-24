@@ -161,7 +161,7 @@ void vdo_free_flusher(struct flusher *flusher)
 		return;
 
 	if (flusher->flush_pool != NULL)
-		mempool_destroy(UDS_FORGET(flusher->flush_pool));
+		mempool_destroy(uds_forget(flusher->flush_pool));
 	UDS_FREE(flusher);
 }
 
