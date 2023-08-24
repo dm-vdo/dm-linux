@@ -1204,7 +1204,7 @@ int vdo_write_stats(struct vdo *vdo,
 	struct vdo_statistics *stats;
 	int result;
 
-	result = UDS_ALLOCATE(1, struct vdo_statistics, __func__, &stats);
+	result = uds_allocate(1, struct vdo_statistics, __func__, &stats);
 	if (result != VDO_SUCCESS)
 		return result;
 
