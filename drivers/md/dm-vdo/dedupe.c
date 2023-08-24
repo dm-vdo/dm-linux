@@ -379,7 +379,7 @@ struct pbn_lock *vdo_get_duplicate_lock(struct data_vio *data_vio)
 static const char *get_hash_lock_state_name(enum hash_lock_state state)
 {
 	/* Catch if a state has been added without updating the name array. */
-	STATIC_ASSERT((VDO_HASH_LOCK_BYPASSING + 1) == ARRAY_SIZE(LOCK_STATE_NAMES));
+	BUILD_BUG_ON((VDO_HASH_LOCK_BYPASSING + 1) != ARRAY_SIZE(LOCK_STATE_NAMES));
 	return (state < ARRAY_SIZE(LOCK_STATE_NAMES)) ? LOCK_STATE_NAMES[state] : "INVALID";
 }
 

@@ -46,20 +46,4 @@ int uds_assertion_failed(const char *expression_string,
 			 ...)
 	__printf(4, 5);
 
-#define STATIC_ASSERT(expr)	     \
-	do {			     \
-		switch (0) {	     \
-		case 0:		     \
-			;	     \
-			fallthrough; \
-		case expr:	     \
-			;	     \
-			fallthrough; \
-		default:	     \
-			break;	     \
-		}		     \
-	} while (0)
-
-#define STATIC_ASSERT_SIZEOF(type, expected_size) STATIC_ASSERT(sizeof(type) == (expected_size))
-
 #endif /* PERMASSERT_H */
