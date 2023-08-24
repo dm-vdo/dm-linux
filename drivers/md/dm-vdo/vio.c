@@ -52,7 +52,7 @@ static int create_multi_block_bio(block_count_t size, struct bio **bio_ptr)
 	struct bio *bio = NULL;
 	int result;
 
-	result = UDS_ALLOCATE_EXTENDED(struct bio, size + 1, struct bio_vec, "bio", &bio);
+	result = uds_allocate_extended(struct bio, size + 1, struct bio_vec, "bio", &bio);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -334,7 +334,7 @@ int make_vio_pool(struct vdo *vdo,
 	char *ptr;
 	int result;
 
-	result = UDS_ALLOCATE_EXTENDED(struct vio_pool,
+	result = uds_allocate_extended(struct vio_pool,
 				       pool_size,
 				       struct pooled_vio,
 				       __func__,
