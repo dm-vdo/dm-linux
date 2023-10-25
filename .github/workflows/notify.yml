@@ -3,7 +3,7 @@ name: Notify
 on:
   schedule:
     - cron: '0 0,2,10,12,14,16,18,20,22 * * 1-5'
-  workflow_dispatch:    
+  Workflow_dispatch:    
 
 jobs:
   notify_schedule:
@@ -95,4 +95,4 @@ jobs:
             }
         env:
           COUNT: ${{ fromJSON(steps.prs_with_approval.outputs.data).search.issueCount }}        
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACKMSG }
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACKMSG }}
