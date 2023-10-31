@@ -522,7 +522,7 @@ static void complete_waiter_with_error(struct waiter *waiter, void *result_ptr)
  */
 static void complete_waiter_with_page(struct waiter *waiter, void *page_info)
 {
-	complete_with_page((struct page_info *) page_info, page_completion_from_waiter(waiter));
+	complete_with_page(page_info, page_completion_from_waiter(waiter));
 }
 
 /**
@@ -1511,7 +1511,7 @@ static void write_page(struct tree_page *tree_page, struct pooled_vio *vio);
 /* Implements waiter_callback */
 static void write_page_callback(struct waiter *waiter, void *context)
 {
-	write_page(container_of(waiter, struct tree_page, waiter), (struct pooled_vio *) context);
+	write_page(container_of(waiter, struct tree_page, waiter), context);
 }
 
 static void acquire_vio(struct waiter *waiter, struct block_map_zone *zone)
@@ -1835,7 +1835,7 @@ static void continue_load_for_waiter(struct waiter *waiter, void *context)
 	struct data_vio *data_vio = waiter_as_data_vio(waiter);
 
 	data_vio->tree_lock.height--;
-	continue_with_loaded_page(data_vio, (struct block_map_page *) context);
+	continue_with_loaded_page(data_vio, context);
 }
 
 static void finish_block_map_page_load(struct vdo_completion *completion)
