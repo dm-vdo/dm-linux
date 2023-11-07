@@ -61,10 +61,8 @@ static void do_status_code_registration(void)
 	BUILD_BUG_ON((VDO_STATUS_CODE_LAST - VDO_STATUS_CODE_BASE) !=
 		     ARRAY_SIZE(vdo_status_list));
 
-	result = uds_register_error_block("VDO Status",
-					  VDO_STATUS_CODE_BASE,
-					  VDO_STATUS_CODE_BLOCK_END,
-					  vdo_status_list,
+	result = uds_register_error_block("VDO Status", VDO_STATUS_CODE_BASE,
+					  VDO_STATUS_CODE_BLOCK_END, vdo_status_list,
 					  sizeof(vdo_status_list));
 	/*
 	 * The following test handles cases where libvdo is statically linked against both the test
@@ -117,8 +115,7 @@ int vdo_map_to_system_error(int error)
 		return -EIO;
 	default:
 		uds_log_info("%s: mapping internal status code %d (%s: %s) to EIO",
-			     __func__,
-			     error,
+			     __func__, error,
 			     uds_string_error_name(error, error_name, sizeof(error_name)),
 			     uds_string_error(error, error_message, sizeof(error_message)));
 		return -EIO;
