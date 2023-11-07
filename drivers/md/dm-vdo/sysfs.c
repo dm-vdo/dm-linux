@@ -34,7 +34,8 @@ static int vdo_log_level_store(const char *buf, const struct kernel_param *kp)
 }
 
 
-static int vdo_dedupe_timeout_interval_store(const char *buf, const struct kernel_param *kp)
+static int vdo_dedupe_timeout_interval_store(const char *buf,
+					     const struct kernel_param *kp)
 {
 	int result = param_set_uint(buf, kp);
 
@@ -44,7 +45,8 @@ static int vdo_dedupe_timeout_interval_store(const char *buf, const struct kerne
 	return 0;
 }
 
-static int vdo_min_dedupe_timer_interval_store(const char *buf, const struct kernel_param *kp)
+static int vdo_min_dedupe_timer_interval_store(const char *buf,
+					       const struct kernel_param *kp)
 {
 	int result = param_set_uint(buf, kp);
 
@@ -73,12 +75,8 @@ static const struct kernel_param_ops dedupe_timer_ops = {
 module_param_cb(log_level, &log_level_ops, NULL, 0644);
 
 
-module_param_cb(deduplication_timeout_interval,
-		&dedupe_timeout_ops,
-		&vdo_dedupe_index_timeout_interval,
-		0644);
+module_param_cb(deduplication_timeout_interval, &dedupe_timeout_ops,
+		&vdo_dedupe_index_timeout_interval, 0644);
 
-module_param_cb(min_deduplication_timer_interval,
-		&dedupe_timer_ops,
-		&vdo_dedupe_index_min_timer_interval,
-		0644);
+module_param_cb(min_deduplication_timer_interval, &dedupe_timer_ops,
+		&vdo_dedupe_index_min_timer_interval, 0644);
