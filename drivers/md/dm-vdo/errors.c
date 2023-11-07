@@ -160,17 +160,11 @@ const char *uds_string_error(int errnum, char *buf, size_t buflen)
 	block_name = get_error_info(errnum, &info);
 	if (block_name != NULL) {
 		if (info != NULL) {
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "%s: %s",
-						      block_name,
-						      info->message);
+			buffer = uds_append_to_buffer(buffer, buf_end, "%s: %s",
+						      block_name, info->message);
 		} else {
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "Unknown %s %d",
-						      block_name,
-						      errnum);
+			buffer = uds_append_to_buffer(buffer, buf_end, "Unknown %s %d",
+						      block_name, errnum);
 		}
 	} else if (info != NULL) {
 		buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->message);
@@ -202,11 +196,8 @@ const char *uds_string_error_name(int errnum, char *buf, size_t buflen)
 		if (info != NULL) {
 			buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->name);
 		} else {
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "%s %d",
-						      block_name,
-						      errnum);
+			buffer = uds_append_to_buffer(buffer, buf_end, "%s %d",
+						      block_name, errnum);
 		}
 	} else if (info != NULL) {
 		buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->name);
@@ -264,10 +255,11 @@ int uds_map_to_system_error(int error)
 	default:
 		/* Translate an unexpected error into something generic. */
 		uds_log_info("%s: mapping status code %d (%s: %s) to -EIO",
-			     __func__,
-			     error,
-			     uds_string_error_name(error, error_name, sizeof(error_name)),
-			     uds_string_error(error, error_message, sizeof(error_message)));
+			     __func__, error,
+			     uds_string_error_name(error, error_name,
+						   sizeof(error_name)),
+			     uds_string_error(error, error_message,
+					      sizeof(error_message)));
 		return -EIO;
 	}
 }
@@ -281,10 +273,8 @@ int uds_map_to_system_error(int error)
  * @infos: a pointer to the error info array for the block
  * @info_size: the size of the error info array
  */
-int uds_register_error_block(const char *block_name,
-			     int first_error,
-			     int next_free_error,
-			     const struct error_info *infos,
+int uds_register_error_block(const char *block_name, int first_error,
+			     int next_free_error, const struct error_info *infos,
 			     size_t info_size)
 {
 	int result;
