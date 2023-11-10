@@ -686,7 +686,7 @@ static void unlock_duplicate_pbn(struct vdo_completion *completion)
 
 	vdo_release_physical_zone_pbn_lock(agent->duplicate.zone,
 					   agent->duplicate.pbn,
-					   UDS_FORGET(lock->duplicate_lock));
+					   uds_forget(lock->duplicate_lock));
 	if (lock->state == VDO_HASH_LOCK_BYPASSING) {
 		complete_data_vio(completion);
 		return;
@@ -883,7 +883,7 @@ static int __must_check acquire_lock(struct hash_zone *zone,
 				     (replace_lock != NULL),
 				     (void **) &lock);
 	if (result != VDO_SUCCESS) {
-		return_hash_lock_to_pool(zone, UDS_FORGET(new_lock));
+		return_hash_lock_to_pool(zone, uds_forget(new_lock));
 		return result;
 	}
 
@@ -901,7 +901,7 @@ static int __must_check acquire_lock(struct hash_zone *zone,
 		lock->registered = true;
 	} else {
 		/* There's already a lock for the hash, so we don't need the borrowed lock. */
-		return_hash_lock_to_pool(zone, UDS_FORGET(new_lock));
+		return_hash_lock_to_pool(zone, uds_forget(new_lock));
 	}
 
 	*lock_ptr = lock;
@@ -1956,7 +1956,7 @@ static void transfer_allocation_lock(struct data_vio *data_vio)
 	 * Since the lock is being transferred, the holder count doesn't change (and isn't even
 	 * safe to examine on this thread).
 	 */
-	hash_lock->duplicate_lock = UDS_FORGET(allocation->lock);
+	hash_lock->duplicate_lock = uds_forget(allocation->lock);
 }
 
 /**
@@ -2016,7 +2016,7 @@ static u32 hash_key(const void *key)
 
 static void dedupe_kobj_release(struct kobject *directory)
 {
-	UDS_FREE(container_of(directory, struct hash_zones, dedupe_directory));
+	uds_free(container_of(directory, struct hash_zones, dedupe_directory));
 }
 
 static ssize_t dedupe_status_show(struct kobject *directory, struct attribute *attr, char *buf)
@@ -2247,7 +2247,7 @@ static int initialize_index(struct vdo *vdo, struct hash_zones *zones)
 
 	result = vdo_make_thread(vdo, vdo->thread_config.dedupe_thread, &uds_queue_type, 1, NULL);
 	if (result != VDO_SUCCESS) {
-		uds_destroy_index_session(UDS_FORGET(zones->index_session));
+		uds_destroy_index_session(uds_forget(zones->index_session));
 		uds_log_error("UDS index queue initialization failed (%d)", result);
 		return result;
 	}
@@ -2407,7 +2407,7 @@ initialize_zone(struct vdo *vdo, struct hash_zones *zones, zone_count_t zone_num
 				    timeout_index_operations_callback,
 				    zone->thread_id);
 	INIT_LIST_HEAD(&zone->lock_pool);
-	result = UDS_ALLOCATE(LOCK_POOL_CAPACITY,
+	result = uds_allocate(LOCK_POOL_CAPACITY,
 			      struct hash_lock,
 			      "hash_lock array",
 			      &zone->lock_array);
@@ -2463,7 +2463,7 @@ int vdo_make_hash_zones(struct vdo *vdo, struct hash_zones **zones_ptr)
 	if (zone_count == 0)
 		return VDO_SUCCESS;
 
-	result = UDS_ALLOCATE_EXTENDED(struct hash_zones,
+	result = uds_allocate_extended(struct hash_zones,
 				       zone_count,
 				       struct hash_zone,
 				       __func__,
@@ -2473,7 +2473,7 @@ int vdo_make_hash_zones(struct vdo *vdo, struct hash_zones **zones_ptr)
 
 	result = initialize_index(vdo, zones);
 	if (result != VDO_SUCCESS) {
-		UDS_FREE(zones);
+		uds_free(zones);
 		return result;
 	}
 
@@ -2509,7 +2509,7 @@ void vdo_finish_dedupe_index(struct hash_zones *zones)
 	if (zones == NULL)
 		return;
 
-	uds_destroy_index_session(UDS_FORGET(zones->index_session));
+	uds_destroy_index_session(uds_forget(zones->index_session));
 }
 
 /**
@@ -2523,14 +2523,14 @@ void vdo_free_hash_zones(struct hash_zones *zones)
 	if (zones == NULL)
 		return;
 
-	UDS_FREE(UDS_FORGET(zones->manager));
+	uds_free(uds_forget(zones->manager));
 
 	for (i = 0; i < zones->zone_count; i++) {
 		struct hash_zone *zone = &zones->zones[i];
 
-		uds_free_funnel_queue(UDS_FORGET(zone->timed_out_complete));
-		vdo_free_pointer_map(UDS_FORGET(zone->hash_lock_map));
-		UDS_FREE(UDS_FORGET(zone->lock_array));
+		uds_free_funnel_queue(uds_forget(zone->timed_out_complete));
+		vdo_free_pointer_map(uds_forget(zone->hash_lock_map));
+		uds_free(uds_forget(zone->lock_array));
 	}
 
 	if (zones->index_session != NULL)
@@ -2538,7 +2538,7 @@ void vdo_free_hash_zones(struct hash_zones *zones)
 
 	ratelimit_state_exit(&zones->ratelimiter);
 	if (vdo_get_admin_state_code(&zones->state) == VDO_ADMIN_STATE_NEW)
-		UDS_FREE(zones);
+		uds_free(zones);
 	else
 		kobject_put(&zones->dedupe_directory);
 }

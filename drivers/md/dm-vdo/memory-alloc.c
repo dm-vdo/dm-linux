@@ -149,7 +149,7 @@ static void remove_vmalloc_block(void *ptr)
 
 	spin_unlock_irqrestore(&memory_stats.lock, flags);
 	if (block != NULL)
-		UDS_FREE(block);
+		uds_free(block);
 	else
 		uds_log_info("attempting to remove ptr %px not found in vmalloc list", ptr);
 }
@@ -246,7 +246,7 @@ int uds_allocate_memory(size_t size, size_t align, const char *what, void *ptr)
 	} else {
 		struct vmalloc_block_info *block;
 
-		if (UDS_ALLOCATE(1, struct vmalloc_block_info, __func__, &block) ==
+		if (uds_allocate(1, struct vmalloc_block_info, __func__, &block) ==
 		    UDS_SUCCESS) {
 			/*
 			 * It is possible for __vmalloc to fail to allocate memory because there
@@ -274,7 +274,7 @@ int uds_allocate_memory(size_t size, size_t align, const char *what, void *ptr)
 			}
 
 			if (p == NULL) {
-				UDS_FREE(block);
+				uds_free(block);
 			} else {
 				block->ptr = p;
 				block->size = PAGE_ALIGN(size);
@@ -286,13 +286,9 @@ int uds_allocate_memory(size_t size, size_t align, const char *what, void *ptr)
 	if (allocations_restricted)
 		memalloc_noio_restore(noio_flags);
 
-	if (p == NULL) {
-		unsigned int duration = jiffies_to_msecs(jiffies - start_time);
-
+	if (unlikely(p == NULL)) {
 		uds_log_error("Could not allocate %zu bytes for %s in %u msecs",
-			      size,
-			      what,
-			      duration);
+			      size, what, jiffies_to_msecs(jiffies - start_time));
 		return -ENOMEM;
 	}
 
@@ -319,7 +315,7 @@ void *uds_allocate_memory_nowait(size_t size, const char *what __maybe_unused)
 	return p;
 }
 
-void uds_free_memory(void *ptr)
+void uds_free(void *ptr)
 {
 	if (ptr != NULL) {
 		if (is_vmalloc_addr(ptr)) {
@@ -349,12 +345,12 @@ int uds_reallocate_memory(void *ptr, size_t old_size, size_t size, const char *w
 	int result;
 
 	if (size == 0) {
-		UDS_FREE(ptr);
+		uds_free(ptr);
 		*(void **) new_ptr = NULL;
 		return UDS_SUCCESS;
 	}
 
-	result = UDS_ALLOCATE(size, char, what, new_ptr);
+	result = uds_allocate(size, char, what, new_ptr);
 	if (result != UDS_SUCCESS)
 		return result;
 
@@ -363,7 +359,7 @@ int uds_reallocate_memory(void *ptr, size_t old_size, size_t size, const char *w
 			size = old_size;
 
 		memcpy(*((void **) new_ptr), ptr, size);
-		UDS_FREE(ptr);
+		uds_free(ptr);
 	}
 
 	return UDS_SUCCESS;
@@ -374,7 +370,7 @@ int uds_duplicate_string(const char *string, const char *what, char **new_string
 	int result;
 	u8 *dup;
 
-	result = UDS_ALLOCATE(strlen(string) + 1, u8, what, &dup);
+	result = uds_allocate(strlen(string) + 1, u8, what, &dup);
 	if (result != UDS_SUCCESS)
 		return result;
 

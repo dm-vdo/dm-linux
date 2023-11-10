@@ -12,28 +12,8 @@
 #include "permassert.h"
 #include "thread-registry.h"
 
-/* Custom memory allocation functions for UDS that track memory usage */
-
+/* Custom memory allocation function for UDS that tracks memory usage */
 int __must_check uds_allocate_memory(size_t size, size_t align, const char *what, void *ptr);
-
-void uds_free_memory(void *ptr);
-
-/* Free memory allocated with UDS_ALLOCATE(). */
-#define UDS_FREE(PTR) uds_free_memory(PTR)
-
-static inline void *uds_forget(void **ptr_ptr)
-{
-	void *ptr = *ptr_ptr;
-
-	*ptr_ptr = NULL;
-	return ptr;
-}
-
-/*
- * Null out a pointer and return a copy to it. This macro should be used when passing a pointer to
- * a function for which it is not safe to access the pointer once the function returns.
- */
-#define UDS_FORGET(ptr) uds_forget((void **) &(ptr))
 
 /*
  * Allocate storage based on element counts, sizes, and alignment.
@@ -79,12 +59,6 @@ static inline int uds_do_allocation(size_t count,
 	return uds_allocate_memory(total_size, align, what, ptr);
 }
 
-int __must_check uds_reallocate_memory(void *ptr,
-				       size_t old_size,
-				       size_t size,
-				       const char *what,
-				       void *new_ptr);
-
 /*
  * Allocate one or more elements of the indicated type, logging an error if the allocation fails.
  * The memory will be zeroed.
@@ -96,7 +70,7 @@ int __must_check uds_reallocate_memory(void *ptr,
  *
  * Return: UDS_SUCCESS or an error code
  */
-#define UDS_ALLOCATE(COUNT, TYPE, WHAT, PTR) \
+#define uds_allocate(COUNT, TYPE, WHAT, PTR) \
 	uds_do_allocation(COUNT, sizeof(TYPE), 0, __alignof__(TYPE), WHAT, PTR)
 
 /*
@@ -112,7 +86,7 @@ int __must_check uds_reallocate_memory(void *ptr,
  *
  * Return: UDS_SUCCESS or an error code
  */
-#define UDS_ALLOCATE_EXTENDED(TYPE1, COUNT, TYPE2, WHAT, PTR)            \
+#define uds_allocate_extended(TYPE1, COUNT, TYPE2, WHAT, PTR)            \
 	__extension__({                                                  \
 		int _result;						 \
 		TYPE1 **_ptr = (PTR);                                    \
@@ -141,24 +115,45 @@ static inline int __must_check uds_allocate_cache_aligned(size_t size, const cha
 	return uds_allocate_memory(size, L1_CACHE_BYTES, what, ptr);
 }
 
-void *__must_check uds_allocate_memory_nowait(size_t size, const char *what);
-
 /*
  * Allocate one element of the indicated type immediately, failing if the required memory is not
  * immediately available.
  *
- * @TYPE: The type of objects to allocate
- * @WHAT: What is being allocated (for error logging)
+ * @size: The number of bytes to allocate
+ * @what: What is being allocated (for error logging)
  *
  * Return: pointer to the memory, or NULL if the memory is not available.
  */
-#define UDS_ALLOCATE_NOWAIT(TYPE, WHAT) uds_allocate_memory_nowait(sizeof(TYPE), WHAT)
+void *__must_check uds_allocate_memory_nowait(size_t size, const char *what);
+
+int __must_check uds_reallocate_memory(void *ptr,
+				       size_t old_size,
+				       size_t size,
+				       const char *what,
+				       void *new_ptr);
 
 int __must_check uds_duplicate_string(const char *string, const char *what, char **new_string);
 
-void uds_memory_exit(void);
+/* Free memory allocated with uds_allocate(). */
+void uds_free(void *ptr);
+
+static inline void *__uds_forget(void **ptr_ptr)
+{
+	void *ptr = *ptr_ptr;
+
+	*ptr_ptr = NULL;
+	return ptr;
+}
+
+/*
+ * Null out a pointer and return a copy to it. This macro should be used when passing a pointer to
+ * a function for which it is not safe to access the pointer once the function returns.
+ */
+#define uds_forget(ptr) __uds_forget((void **) &(ptr))
 
 void uds_memory_init(void);
+
+void uds_memory_exit(void);
 
 void uds_register_allocating_thread(struct registered_thread *new_thread, const bool *flag_ptr);
 

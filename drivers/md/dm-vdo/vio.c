@@ -52,7 +52,7 @@ static int create_multi_block_bio(block_count_t size, struct bio **bio_ptr)
 	struct bio *bio = NULL;
 	int result;
 
-	result = UDS_ALLOCATE_EXTENDED(struct bio, size + 1, struct bio_vec, "bio", &bio);
+	result = uds_allocate_extended(struct bio, size + 1, struct bio_vec, "bio", &bio);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -71,7 +71,7 @@ void vdo_free_bio(struct bio *bio)
 		return;
 
 	bio_uninit(bio);
-	UDS_FREE(UDS_FORGET(bio));
+	uds_free(uds_forget(bio));
 }
 
 int allocate_vio_components(struct vdo *vdo,
@@ -138,7 +138,7 @@ int create_multi_block_metadata_vio(struct vdo *vdo,
 	 * Metadata vios should use direct allocation and not use the buffer pool, which is
 	 * reserved for submissions from the linux block layer.
 	 */
-	result = UDS_ALLOCATE(1, struct vio, __func__, &vio);
+	result = uds_allocate(1, struct vio, __func__, &vio);
 	if (result != VDO_SUCCESS) {
 		uds_log_error("metadata vio allocation failure %d", result);
 		return result;
@@ -146,7 +146,7 @@ int create_multi_block_metadata_vio(struct vdo *vdo,
 
 	result = allocate_vio_components(vdo, vio_type, priority, parent, block_count, data, vio);
 	if (result != VDO_SUCCESS) {
-		UDS_FREE(vio);
+		uds_free(vio);
 		return result;
 	}
 
@@ -164,7 +164,7 @@ void free_vio_components(struct vio *vio)
 		return;
 
 	BUG_ON(is_data_vio(vio));
-	vdo_free_bio(UDS_FORGET(vio->bio));
+	vdo_free_bio(uds_forget(vio->bio));
 }
 
 /**
@@ -174,7 +174,7 @@ void free_vio_components(struct vio *vio)
 void free_vio(struct vio *vio)
 {
 	free_vio_components(vio);
-	UDS_FREE(vio);
+	uds_free(vio);
 }
 
 /* Set bio properties for a VDO read or write. */
@@ -334,7 +334,7 @@ int make_vio_pool(struct vdo *vdo,
 	char *ptr;
 	int result;
 
-	result = UDS_ALLOCATE_EXTENDED(struct vio_pool,
+	result = uds_allocate_extended(struct vio_pool,
 				       pool_size,
 				       struct pooled_vio,
 				       __func__,
@@ -346,7 +346,7 @@ int make_vio_pool(struct vdo *vdo,
 	INIT_LIST_HEAD(&pool->available);
 	INIT_LIST_HEAD(&pool->busy);
 
-	result = UDS_ALLOCATE(pool_size * VDO_BLOCK_SIZE, char, "VIO pool buffer", &pool->buffer);
+	result = uds_allocate(pool_size * VDO_BLOCK_SIZE, char, "VIO pool buffer", &pool->buffer);
 	if (result != VDO_SUCCESS) {
 		free_vio_pool(pool);
 		return result;
@@ -405,8 +405,8 @@ void free_vio_pool(struct vio_pool *pool)
 	ASSERT_LOG_ONLY(pool->size == 0,
 			"VIO pool must not have missing entries when being freed");
 
-	UDS_FREE(UDS_FORGET(pool->buffer));
-	UDS_FREE(pool);
+	uds_free(uds_forget(pool->buffer));
+	uds_free(pool);
 }
 
 /**

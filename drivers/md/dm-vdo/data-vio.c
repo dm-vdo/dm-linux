@@ -822,10 +822,10 @@ static void destroy_data_vio(struct data_vio *data_vio)
 	if (data_vio == NULL)
 		return;
 
-	vdo_free_bio(UDS_FORGET(data_vio->vio.bio));
-	UDS_FREE(UDS_FORGET(data_vio->vio.data));
-	UDS_FREE(UDS_FORGET(data_vio->compression.block));
-	UDS_FREE(UDS_FORGET(data_vio->scratch_block));
+	vdo_free_bio(uds_forget(data_vio->vio.bio));
+	uds_free(uds_forget(data_vio->vio.data));
+	uds_free(uds_forget(data_vio->compression.block));
+	uds_free(uds_forget(data_vio->scratch_block));
 }
 
 /**
@@ -844,7 +844,7 @@ int make_data_vio_pool(struct vdo *vdo,
 	struct data_vio_pool *pool;
 	data_vio_count_t i;
 
-	result = UDS_ALLOCATE_EXTENDED(struct data_vio_pool,
+	result = uds_allocate_extended(struct data_vio_pool,
 				       pool_size,
 				       struct data_vio,
 				       __func__,
@@ -869,7 +869,7 @@ int make_data_vio_pool(struct vdo *vdo,
 
 	result = uds_make_funnel_queue(&pool->queue);
 	if (result != UDS_SUCCESS) {
-		free_data_vio_pool(UDS_FORGET(pool));
+		free_data_vio_pool(uds_forget(pool));
 		return result;
 	}
 
@@ -926,8 +926,8 @@ void free_data_vio_pool(struct data_vio_pool *pool)
 		destroy_data_vio(data_vio);
 	}
 
-	uds_free_funnel_queue(UDS_FORGET(pool->queue));
-	UDS_FREE(pool);
+	uds_free_funnel_queue(uds_forget(pool->queue));
+	uds_free(pool);
 }
 
 static bool acquire_permit(struct limiter *limiter, struct bio *bio)
@@ -1425,7 +1425,7 @@ void release_data_vio_allocation_lock(struct data_vio *data_vio, bool reset)
 
 	vdo_release_physical_zone_pbn_lock(allocation->zone,
 					   locked_pbn,
-					   UDS_FORGET(allocation->lock));
+					   uds_forget(allocation->lock));
 }
 
 /**

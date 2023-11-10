@@ -64,7 +64,7 @@ int uds_make_io_factory(struct block_device *bdev, struct io_factory **factory_p
 	int result;
 	struct io_factory *factory;
 
-	result = UDS_ALLOCATE(1, struct io_factory, __func__, &factory);
+	result = uds_allocate(1, struct io_factory, __func__, &factory);
 	if (result != UDS_SUCCESS)
 		return result;
 
@@ -85,7 +85,7 @@ int uds_replace_storage(struct io_factory *factory, struct block_device *bdev)
 void uds_put_io_factory(struct io_factory *factory)
 {
 	if (atomic_add_return(-1, &factory->ref_count) <= 0)
-		UDS_FREE(factory);
+		uds_free(factory);
 }
 
 size_t uds_get_writable_size(struct io_factory *factory)
@@ -137,7 +137,7 @@ void uds_free_buffered_reader(struct buffered_reader *reader)
 
 	dm_bufio_client_destroy(reader->client);
 	uds_put_io_factory(reader->factory);
-	UDS_FREE(reader);
+	uds_free(reader);
 }
 
 /* Create a buffered reader for an index region starting at offset. */
@@ -154,7 +154,7 @@ int uds_make_buffered_reader(struct io_factory *factory,
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(1, struct buffered_reader, "buffered reader", &reader);
+	result = uds_allocate(1, struct buffered_reader, "buffered reader", &reader);
 	if (result != UDS_SUCCESS) {
 		dm_bufio_client_destroy(client);
 		return result;
@@ -186,7 +186,7 @@ static int position_reader(struct buffered_reader *reader, sector_t block_number
 			return UDS_OUT_OF_RANGE;
 
 		if (reader->buffer != NULL)
-			dm_bufio_release(UDS_FORGET(reader->buffer));
+			dm_bufio_release(uds_forget(reader->buffer));
 
 		data = dm_bufio_read(reader->client, block_number, &buffer);
 		if (IS_ERR(data))
@@ -291,7 +291,7 @@ int uds_make_buffered_writer(struct io_factory *factory,
 	if (result != UDS_SUCCESS)
 		return result;
 
-	result = UDS_ALLOCATE(1, struct buffered_writer, "buffered writer", &writer);
+	result = uds_allocate(1, struct buffered_writer, "buffered writer", &writer);
 	if (result != UDS_SUCCESS) {
 		dm_bufio_client_destroy(client);
 		return result;
@@ -378,7 +378,7 @@ void uds_free_buffered_writer(struct buffered_writer *writer)
 
 	dm_bufio_client_destroy(writer->client);
 	uds_put_io_factory(writer->factory);
-	UDS_FREE(writer);
+	uds_free(writer);
 }
 
 /*
