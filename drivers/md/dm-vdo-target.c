@@ -1139,7 +1139,7 @@ static void configure_target_capabilities(struct dm_target *ti)
 }
 
 /*
- * Implements vdo_filter_t.
+ * Implements vdo_filter_fn.
  */
 static bool vdo_uses_device(struct vdo *vdo, const void *context)
 {
@@ -1176,8 +1176,8 @@ static thread_id_t __must_check get_thread_id_for_phase(struct vdo *vdo)
 }
 
 static struct vdo_completion *prepare_admin_completion(struct vdo *vdo,
-						       vdo_action *callback,
-						       vdo_action *error_handler)
+						       vdo_action_fn callback,
+						       vdo_action_fn error_handler)
 {
 	struct vdo_completion *completion = &vdo->admin.completion;
 
@@ -1213,7 +1213,7 @@ static u32 advance_phase(struct vdo *vdo)
  * should not be called from vdo threads.
  */
 static int perform_admin_operation(struct vdo *vdo, u32 starting_phase,
-				   vdo_action *callback, vdo_action *error_handler,
+				   vdo_action_fn callback, vdo_action_fn error_handler,
 				   const char *type)
 {
 	int result;
@@ -1502,7 +1502,7 @@ static int vdo_initialize(struct dm_target *ti, unsigned int instance,
 	return VDO_SUCCESS;
 }
 
-/* Implements vdo_filter_t. */
+/* Implements vdo_filter_fn. */
 static bool __must_check vdo_is_named(struct vdo *vdo, const void *context)
 {
 	struct dm_target *ti = vdo->device_config->owning_target;

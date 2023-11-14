@@ -215,13 +215,12 @@ static struct vio *get_mergeable_locked(struct int_map *map, struct vio *vio,
 	if (bio_list_empty(&vio_merge->bios_merged))
 		return NULL;
 
-	if (back_merge) {
-		return (get_bio_sector(vio_merge->bios_merged.tail) == merge_sector ?
-			vio_merge : NULL);
-	}
+	if (back_merge)
+		return ((get_bio_sector(vio_merge->bios_merged.tail) == merge_sector) ?
+			vio_merge :
+			NULL);
 
-	return (get_bio_sector(vio_merge->bios_merged.head) == merge_sector ?
-		vio_merge : NULL);
+	return ((get_bio_sector(vio_merge->bios_merged.head) == merge_sector) ? vio_merge : NULL);
 }
 
 static int map_merged_vio(struct int_map *bio_map, struct vio *vio)
@@ -289,9 +288,8 @@ static bool try_bio_map_merge(struct vio *vio)
 	if ((prev_vio == NULL) && (next_vio == NULL)) {
 		/* no merge. just add to bio_queue */
 		merged = false;
-		result = vdo_int_map_put(bio_queue_data->map,
-					 get_bio_sector(bio),
-					 vio, true, NULL);
+		result = vdo_int_map_put(bio_queue_data->map, get_bio_sector(bio), vio,
+					 true, NULL);
 	} else if (next_vio == NULL) {
 		/* Only prev. merge to prev's tail */
 		result = merge_to_prev_tail(bio_queue_data->map, vio, prev_vio);
@@ -299,6 +297,7 @@ static bool try_bio_map_merge(struct vio *vio)
 		/* Only next. merge to next's head */
 		result = merge_to_next_head(bio_queue_data->map, vio, next_vio);
 	}
+
 	mutex_unlock(&bio_queue_data->lock);
 
 	/* We don't care about failure of int_map_put in this case. */
@@ -339,7 +338,7 @@ void submit_data_vio_io(struct data_vio *data_vio)
  * will be needed if this ever changes.
  */
 void vdo_submit_metadata_io(struct vio *vio, physical_block_number_t physical,
-			    bio_end_io_t callback, vdo_action *error_handler,
+			    bio_end_io_t callback, vdo_action_fn error_handler,
 			    unsigned int operation, char *data)
 {
 	struct vdo_completion *completion = &vio->completion;
