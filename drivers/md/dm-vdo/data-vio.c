@@ -123,7 +123,7 @@ static const u32 COMPRESSION_STATUS_MASK = 0xff;
 static const u32 MAY_NOT_COMPRESS_MASK = 0x80000000;
 
 struct limiter;
-typedef void assigner(struct limiter *limiter);
+typedef void (*assigner_fn)(struct limiter *limiter);
 
 /* Bookkeeping structure for a single type of resource. */
 struct limiter {
@@ -146,7 +146,7 @@ struct limiter {
 	/* The list of waiters which have their permits */
 	struct bio_list *permitted_waiters;
 	/* The function for assigning a resource to a waiter */
-	assigner *assigner;
+	assigner_fn assigner;
 	/* The queue of blocked threads */
 	wait_queue_head_t blocked_threads;
 	/* The arrival time of the eldest waiter */
@@ -432,8 +432,8 @@ static void attempt_logical_block_lock(struct vdo_completion *completion)
 		return;
 	}
 
-	result = vdo_int_map_put(lock->zone->lbn_operations, lock->lbn,
-				 data_vio, false, (void **) &lock_holder);
+	result = vdo_int_map_put(lock->zone->lbn_operations, lock->lbn, data_vio, false,
+				 (void **) &lock_holder);
 	if (result != VDO_SUCCESS) {
 		continue_data_vio_with_error(data_vio, result);
 		return;
@@ -768,7 +768,7 @@ static void process_release_callback(struct vdo_completion *completion)
 }
 
 static void initialize_limiter(struct limiter *limiter, struct data_vio_pool *pool,
-			       assigner *assigner, data_vio_count_t limit)
+			       assigner_fn assigner, data_vio_count_t limit)
 {
 	limiter->pool = pool;
 	limiter->assigner = assigner;
@@ -976,7 +976,7 @@ void vdo_launch_bio(struct data_vio_pool *pool, struct bio *bio)
 	launch_bio(pool->completion.vdo, data_vio, bio);
 }
 
-/* Implements vdo_admin_initiator. */
+/* Implements vdo_admin_initiator_fn. */
 static void initiate_drain(struct admin_state *state)
 {
 	bool drained;
@@ -1190,15 +1190,13 @@ static void transfer_lock(struct data_vio *data_vio, struct lbn_lock *lock)
 	ASSERT_LOG_ONLY(lock->locked, "lbn_lock with waiters is not locked");
 
 	/* Another data_vio is waiting for the lock, transfer it in a single lock map operation. */
-	next_lock_holder =
-		waiter_as_data_vio(vdo_dequeue_next_waiter(&lock->waiters));
+	next_lock_holder = waiter_as_data_vio(vdo_dequeue_next_waiter(&lock->waiters));
 
 	/* Transfer the remaining lock waiters to the next lock holder. */
-	vdo_transfer_all_waiters(&lock->waiters,
-				 &next_lock_holder->logical.waiters);
+	vdo_transfer_all_waiters(&lock->waiters, &next_lock_holder->logical.waiters);
 
-	result = vdo_int_map_put(lock->zone->lbn_operations, lock->lbn,
-				 next_lock_holder, true, (void **) &lock_holder);
+	result = vdo_int_map_put(lock->zone->lbn_operations, lock->lbn, next_lock_holder,
+				 true, (void **) &lock_holder);
 	if (result != VDO_SUCCESS) {
 		continue_data_vio_with_error(next_lock_holder, result);
 		return;
@@ -1394,7 +1392,7 @@ const char *get_data_vio_operation_name(struct data_vio *data_vio)
  */
 void data_vio_allocate_data_block(struct data_vio *data_vio,
 				  enum pbn_lock_type write_lock_type,
-				  vdo_action *callback, vdo_action *error_handler)
+				  vdo_action_fn callback, vdo_action_fn error_handler)
 {
 	struct allocation *allocation = &data_vio->allocation;
 
@@ -1901,9 +1899,8 @@ void write_data_vio(struct data_vio *data_vio)
 		 !set_data_vio_compression_status(data_vio, status, new_status));
 
 	/* Write the data from the data block buffer. */
-	result = vio_reset_bio(&data_vio->vio, data_vio->vio.data,
-			       write_bio_finished, REQ_OP_WRITE,
-			       data_vio->allocation.pbn);
+	result = vio_reset_bio(&data_vio->vio, data_vio->vio.data, write_bio_finished,
+			       REQ_OP_WRITE, data_vio->allocation.pbn);
 	if (result != VDO_SUCCESS) {
 		continue_data_vio_with_error(data_vio, result);
 		return;
