@@ -60,7 +60,6 @@
 #include "status-codes.h"
 #include "vio.h"
 
-
 enum { PARANOID_THREAD_CONSISTENCY_CHECKS = 0 };
 
 struct sync_completion {
@@ -109,9 +108,10 @@ static struct vdo * __must_check filter_vdos_locked(vdo_filter_t *filter, const 
 {
 	struct vdo *vdo;
 
-	list_for_each_entry(vdo, &registry.links, registration)
+	list_for_each_entry(vdo, &registry.links, registration) {
 		if (filter(vdo, context))
 			return vdo;
+	}
 
 	return NULL;
 }
@@ -128,6 +128,7 @@ struct vdo *vdo_find_matching(vdo_filter_t *filter, const void *context)
 	read_lock(&registry.lock);
 	vdo = filter_vdos_locked(filter, context);
 	read_unlock(&registry.lock);
+
 	return vdo;
 }
 
@@ -337,6 +338,7 @@ static bool get_zone_thread_name(const thread_id_t thread_ids[],
 			return true;
 		}
 	}
+
 	return false;
 }
 
@@ -450,10 +452,11 @@ int vdo_make_thread(struct vdo *vdo,
 	if (type == NULL)
 		type = &default_queue_type;
 
-	if (thread->queue != NULL)
+	if (thread->queue != NULL) {
 		return ASSERT(vdo_work_queue_type_is(thread->queue, type),
 			      "already constructed vdo thread %u is of the correct type",
 			      thread_id);
+	}
 
 	thread->vdo = vdo;
 	thread->thread_id = thread_id;
@@ -1280,26 +1283,28 @@ static void make_thread_read_only(struct vdo_completion *completion)
 	}
 
 	/* We're done with this thread */
-	if (++thread_id == vdo->thread_config.dedupe_thread)
+	if (++thread_id == vdo->thread_config.dedupe_thread) {
 		/*
 		 * We don't want to notify the dedupe thread since it may be
 		 * blocked rebuilding the index.
 		 */
 		thread_id++;
+	}
 
-	if (thread_id >= vdo->thread_config.thread_count)
+	if (thread_id >= vdo->thread_config.thread_count) {
 		/* There are no more threads */
 		vdo_prepare_completion(completion,
 				       finish_entering_read_only_mode,
 				       finish_entering_read_only_mode,
 				       vdo->thread_config.admin_thread,
 				       NULL);
-	else
+	} else {
 		vdo_prepare_completion(completion,
 				       make_thread_read_only,
 				       make_thread_read_only,
 				       thread_id,
 				       NULL);
+	}
 
 	vdo_launch_completion(completion);
 }
@@ -1366,9 +1371,10 @@ void vdo_enter_read_only_mode(struct vdo *vdo, int error_code)
 
 	if (thread_id != VDO_INVALID_THREAD_ID) {
 		thread = &vdo->threads[thread_id];
-		if (thread->is_read_only)
+		if (thread->is_read_only) {
 			/* This thread has already gone read-only. */
 			return;
+		}
 
 		/* Record for this thread that the VDO is read-only. */
 		thread->is_read_only = true;
@@ -1384,9 +1390,10 @@ void vdo_enter_read_only_mode(struct vdo *vdo, int error_code)
 	}
 	spin_unlock(&notifier->lock);
 
-	if (!notify)
+	if (!notify) {
 		/* The notifier is already aware of a read-only error */
 		return;
+	}
 
 	/* Initiate a notification starting on the lowest numbered thread. */
 	vdo_launch_completion_callback(&notifier->completion, make_thread_read_only, 0);
@@ -1487,9 +1494,10 @@ static void set_compression_callback(struct vdo_completion *completion)
 
 	if (*enable != was_enabled) {
 		WRITE_ONCE(vdo->compressing, *enable);
-		if (was_enabled)
+		if (was_enabled) {
 			/* Signal the packer to flush since compression has been disabled. */
 			vdo_flush_packer(vdo->packer);
+		}
 	}
 
 	uds_log_info("compression is %s", (*enable ? "enabled" : "disabled"));
@@ -1675,7 +1683,8 @@ static void get_vdo_statistics(const struct vdo *vdo, struct vdo_statistics *sta
 	copy_bio_stat(&stats->bios_page_cache_completed, &vdo->stats.bios_page_cache_completed);
 	copy_bio_stat(&stats->bios_acknowledged, &vdo->stats.bios_acknowledged);
 	copy_bio_stat(&stats->bios_acknowledged_partial, &vdo->stats.bios_acknowledged_partial);
-	stats->bios_in_progress = subtract_bio_stats(stats->bios_in, stats->bios_acknowledged);
+	stats->bios_in_progress =
+		subtract_bio_stats(stats->bios_in, stats->bios_acknowledged);
 	uds_get_memory_stats(&stats->memory_usage.bytes_used,
 			     &stats->memory_usage.peak_bytes_used);
 }
