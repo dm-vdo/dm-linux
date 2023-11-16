@@ -47,14 +47,14 @@ struct io_submitter {
 
 static void start_bio_queue(void *ptr)
 {
-	struct bio_queue_data *bio_queue_data = (struct bio_queue_data *) ptr;
+	struct bio_queue_data *bio_queue_data = ptr;
 
 	blk_start_plug(&bio_queue_data->plug);
 }
 
 static void finish_bio_queue(void *ptr)
 {
-	struct bio_queue_data *bio_queue_data = (struct bio_queue_data *) ptr;
+	struct bio_queue_data *bio_queue_data = ptr;
 
 	blk_finish_plug(&bio_queue_data->plug);
 }
@@ -189,7 +189,8 @@ static void process_data_vio_io(struct vdo_completion *completion)
  *
  * Return: the vio to merge to, NULL if no merging is possible.
  */
-static struct vio *get_mergeable_locked(struct int_map *map, struct vio *vio, bool back_merge)
+static struct vio *get_mergeable_locked(struct int_map *map, struct vio *vio,
+					bool back_merge)
 {
 	struct bio *bio = vio->bio;
 	sector_t merge_sector = get_bio_sector(bio);
@@ -226,21 +227,25 @@ static int map_merged_vio(struct int_map *bio_map, struct vio *vio)
 {
 	int result;
 
-	result = vdo_int_map_put(bio_map, get_bio_sector(vio->bios_merged.head), vio, true, NULL);
+	result = vdo_int_map_put(bio_map, get_bio_sector(vio->bios_merged.head), vio,
+				 true, NULL);
 	if (result != VDO_SUCCESS)
 		return result;
 
-	return vdo_int_map_put(bio_map, get_bio_sector(vio->bios_merged.tail), vio, true, NULL);
+	return vdo_int_map_put(bio_map, get_bio_sector(vio->bios_merged.tail), vio, true,
+			       NULL);
 }
 
-static int merge_to_prev_tail(struct int_map *bio_map, struct vio *vio, struct vio *prev_vio)
+static int merge_to_prev_tail(struct int_map *bio_map, struct vio *vio,
+			      struct vio *prev_vio)
 {
 	vdo_int_map_remove(bio_map, get_bio_sector(prev_vio->bios_merged.tail));
 	bio_list_merge(&prev_vio->bios_merged, &vio->bios_merged);
 	return map_merged_vio(bio_map, prev_vio);
 }
 
-static int merge_to_next_head(struct int_map *bio_map, struct vio *vio, struct vio *next_vio)
+static int merge_to_next_head(struct int_map *bio_map, struct vio *vio,
+			      struct vio *next_vio)
 {
 	/*
 	 * Handle "next merge" and "gap fill" cases the same way so as to reorder bios in a way
@@ -267,7 +272,8 @@ static bool try_bio_map_merge(struct vio *vio)
 	struct bio *bio = vio->bio;
 	struct vio *prev_vio, *next_vio;
 	struct vdo *vdo = vio->completion.vdo;
-	struct bio_queue_data *bio_queue_data = &vdo->io_submitter->bio_queue_data[vio->bio_zone];
+	struct bio_queue_data *bio_queue_data =
+		&vdo->io_submitter->bio_queue_data[vio->bio_zone];
 
 	bio->bi_next = NULL;
 	bio_list_init(&vio->bios_merged);
@@ -282,11 +288,8 @@ static bool try_bio_map_merge(struct vio *vio)
 	if ((prev_vio == NULL) && (next_vio == NULL)) {
 		/* no merge. just add to bio_queue */
 		merged = false;
-		result = vdo_int_map_put(bio_queue_data->map,
-					 get_bio_sector(bio),
-					 vio,
-					 true,
-					 NULL);
+		result = vdo_int_map_put(bio_queue_data->map, get_bio_sector(bio), vio,
+					 true, NULL);
 	} else if (next_vio == NULL) {
 		/* Only prev. merge to prev's tail */
 		result = merge_to_prev_tail(bio_queue_data->map, vio, prev_vio);
@@ -334,12 +337,9 @@ void submit_data_vio_io(struct data_vio *data_vio)
  * no error can occur on the bio queue. Currently this is true for all callers, but additional care
  * will be needed if this ever changes.
  */
-void vdo_submit_metadata_io(struct vio *vio,
-			    physical_block_number_t physical,
-			    bio_end_io_t callback,
-			    vdo_action *error_handler,
-			    unsigned int operation,
-			    char *data)
+void vdo_submit_metadata_io(struct vio *vio, physical_block_number_t physical,
+			    bio_end_io_t callback, vdo_action_fn error_handler,
+			    unsigned int operation, char *data)
 {
 	struct vdo_completion *completion = &vio->completion;
 	int result;
@@ -357,7 +357,8 @@ void vdo_submit_metadata_io(struct vio *vio,
 		return;
 	}
 
-	vdo_set_completion_callback(completion, process_vio_io, get_vio_bio_zone_thread_id(vio));
+	vdo_set_completion_callback(completion, process_vio_io,
+				    get_vio_bio_zone_thread_id(vio));
 	vdo_launch_completion_with_priority(completion, get_metadata_priority(vio));
 }
 
@@ -372,20 +373,16 @@ void vdo_submit_metadata_io(struct vio *vio,
  *
  * Return: VDO_SUCCESS or an error.
  */
-int vdo_make_io_submitter(unsigned int thread_count,
-			  unsigned int rotation_interval,
-			  unsigned int max_requests_active,
-			  struct vdo *vdo,
+int vdo_make_io_submitter(unsigned int thread_count, unsigned int rotation_interval,
+			  unsigned int max_requests_active, struct vdo *vdo,
 			  struct io_submitter **io_submitter_ptr)
 {
 	unsigned int i;
 	struct io_submitter *io_submitter;
 	int result;
 
-	result = uds_allocate_extended(struct io_submitter,
-				       thread_count,
-				       struct bio_queue_data,
-				       "bio submission data",
+	result = uds_allocate_extended(struct io_submitter, thread_count,
+				       struct bio_queue_data, "bio submission data",
 				       &io_submitter);
 	if (result != UDS_SUCCESS)
 		return result;
@@ -405,7 +402,8 @@ int vdo_make_io_submitter(unsigned int thread_count,
 		 * uneven. So for now, we'll assume that all requests *may* wind up on one thread,
 		 * and thus all in the same map.
 		 */
-		result = vdo_make_int_map(max_requests_active * 2, 0, &bio_queue_data->map);
+		result = vdo_make_int_map(max_requests_active * 2, 0,
+					  &bio_queue_data->map);
 		if (result != 0) {
 			/*
 			 * Clean up the partially initialized bio-queue entirely and indicate that
@@ -418,11 +416,8 @@ int vdo_make_io_submitter(unsigned int thread_count,
 		}
 
 		bio_queue_data->queue_number = i;
-		result = vdo_make_thread(vdo,
-					 vdo->thread_config.bio_threads[i],
-					 &bio_queue_type,
-					 1,
-					 (void **) &bio_queue_data);
+		result = vdo_make_thread(vdo, vdo->thread_config.bio_threads[i],
+					 &bio_queue_type, 1, (void **) &bio_queue_data);
 		if (result != VDO_SUCCESS) {
 			/*
 			 * Clean up the partially initialized bio-queue entirely and indicate that

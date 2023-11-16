@@ -37,7 +37,7 @@ static struct logical_zone *as_logical_zone(struct vdo_completion *completion)
 	return container_of(completion, struct logical_zone, completion);
 }
 
-/* get_thread_id_for_zone() - Implements vdo_zone_thread_getter. */
+/* get_thread_id_for_zone() - Implements vdo_zone_thread_getter_fn. */
 static thread_id_t get_thread_id_for_zone(void *context, zone_count_t zone_number)
 {
 	struct logical_zones *zones = context;
@@ -64,7 +64,8 @@ static int initialize_zone(struct logical_zones *zones, zone_count_t zone_number
 	if (zone_number < vdo->thread_config.logical_zone_count - 1)
 		zone->next = &zones->zones[zone_number + 1];
 
-	vdo_initialize_completion(&zone->completion, vdo, VDO_GENERATION_FLUSHED_COMPLETION);
+	vdo_initialize_completion(&zone->completion, vdo,
+				  VDO_GENERATION_FLUSHED_COMPLETION);
 	zone->zones = zones;
 	zone->zone_number = zone_number;
 	zone->thread_id = vdo->thread_config.logical_threads[zone_number];
@@ -110,13 +111,9 @@ int vdo_make_logical_zones(struct vdo *vdo, struct logical_zones **zones_ptr)
 		}
 	}
 
-	result = vdo_make_action_manager(zones->zone_count,
-					 get_thread_id_for_zone,
-					 vdo->thread_config.admin_thread,
-					 zones,
-					 NULL,
-					 vdo,
-					 &zones->manager);
+	result = vdo_make_action_manager(zones->zone_count, get_thread_id_for_zone,
+					 vdo->thread_config.admin_thread, zones, NULL,
+					 vdo, &zones->manager);
 	if (result != VDO_SUCCESS) {
 		vdo_free_logical_zones(zones);
 		return result;
@@ -167,7 +164,7 @@ static void check_for_drain_complete(struct logical_zone *zone)
 /**
  * initiate_drain() - Initiate a drain.
  *
- * Implements vdo_admin_initiator.
+ * Implements vdo_admin_initiator_fn.
  */
 static void initiate_drain(struct admin_state *state)
 {
@@ -177,16 +174,15 @@ static void initiate_drain(struct admin_state *state)
 /**
  * drain_logical_zone() - Drain a logical zone.
  *
- * Implements vdo_zone_action.
+ * Implements vdo_zone_action_fn.
  */
-static void
-drain_logical_zone(void *context, zone_count_t zone_number, struct vdo_completion *parent)
+static void drain_logical_zone(void *context, zone_count_t zone_number,
+			       struct vdo_completion *parent)
 {
 	struct logical_zones *zones = context;
 
 	vdo_start_draining(&zones->zones[zone_number].state,
-			   vdo_get_current_manager_operation(zones->manager),
-			   parent,
+			   vdo_get_current_manager_operation(zones->manager), parent,
 			   initiate_drain);
 }
 
@@ -194,16 +190,17 @@ void vdo_drain_logical_zones(struct logical_zones *zones,
 			     const struct admin_state_code *operation,
 			     struct vdo_completion *parent)
 {
-	vdo_schedule_operation(zones->manager, operation, NULL, drain_logical_zone, NULL, parent);
+	vdo_schedule_operation(zones->manager, operation, NULL, drain_logical_zone, NULL,
+			       parent);
 }
 
 /**
  * resume_logical_zone() - Resume a logical zone.
  *
- * Implements vdo_zone_action.
+ * Implements vdo_zone_action_fn.
  */
-static void
-resume_logical_zone(void *context, zone_count_t zone_number, struct vdo_completion *parent)
+static void resume_logical_zone(void *context, zone_count_t zone_number,
+				struct vdo_completion *parent)
 {
 	struct logical_zone *zone = &(((struct logical_zones *) context)->zones[zone_number]);
 
@@ -230,7 +227,8 @@ void vdo_resume_logical_zones(struct logical_zones *zones, struct vdo_completion
 static bool update_oldest_active_generation(struct logical_zone *zone)
 {
 	struct data_vio *data_vio =
-		list_first_entry_or_null(&zone->write_vios, struct data_vio, write_entry);
+		list_first_entry_or_null(&zone->write_vios, struct data_vio,
+					 write_entry);
 	sequence_number_t oldest =
 		(data_vio == NULL) ? zone->flush_generation : data_vio->flush_generation;
 
@@ -253,8 +251,7 @@ void vdo_increment_logical_zone_flush_generation(struct logical_zone *zone,
 	assert_on_zone_thread(zone, __func__);
 	ASSERT_LOG_ONLY((zone->flush_generation == expected_generation),
 			"logical zone %u flush generation %llu should be %llu before increment",
-			zone->zone_number,
-			(unsigned long long) zone->flush_generation,
+			zone->zone_number, (unsigned long long) zone->flush_generation,
 			(unsigned long long) expected_generation);
 
 	zone->flush_generation++;

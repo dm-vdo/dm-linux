@@ -35,16 +35,15 @@ struct barrier {
 	int thread_count;
 };
 
-int __must_check uds_create_thread(void (*thread_function)(void *),
-				   void *thread_data,
-				   const char *name,
-				   struct thread **new_thread);
+int __must_check uds_create_thread(void (*thread_function)(void *), void *thread_data,
+				   const char *name, struct thread **new_thread);
 
 void uds_perform_once(atomic_t *once_state, void (*function) (void));
 
 int uds_join_threads(struct thread *thread);
 
-int __must_check uds_initialize_barrier(struct barrier *barrier, unsigned int thread_count);
+int __must_check uds_initialize_barrier(struct barrier *barrier,
+					unsigned int thread_count);
 int uds_destroy_barrier(struct barrier *barrier);
 int uds_enter_barrier(struct barrier *barrier);
 
@@ -75,8 +74,8 @@ static inline void uds_unlock_mutex(struct mutex *mutex)
 	mutex_unlock(mutex);
 }
 
-static inline int __must_check
-uds_initialize_semaphore(struct semaphore *semaphore, unsigned int value)
+static inline int __must_check uds_initialize_semaphore(struct semaphore *semaphore,
+							unsigned int value)
 {
 	sema_init(semaphore, value);
 	return UDS_SUCCESS;
@@ -93,7 +92,7 @@ static inline void uds_acquire_semaphore(struct semaphore *semaphore)
 	 * Do not use down(semaphore). Instead use down_interruptible so that
 	 * we do not get 120 second stall messages in kern.log.
 	 */
-	while (down_interruptible(semaphore) != 0)
+	while (down_interruptible(semaphore) != 0) {
 		/*
 		 * If we're called from a user-mode process (e.g., "dmsetup
 		 * remove") while waiting for an operation that may take a
@@ -105,6 +104,7 @@ static inline void uds_acquire_semaphore(struct semaphore *semaphore)
 		 * trying to do computational work. [VDO-4980]
 		 */
 		fsleep(1000);
+	}
 }
 
 static inline void uds_release_semaphore(struct semaphore *semaphore)

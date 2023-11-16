@@ -50,7 +50,7 @@ struct uds_request_queue {
 	/* Wait queue for synchronizing producers and consumer */
 	struct wait_queue_head wait_head;
 	/* Function to process a request */
-	uds_request_queue_processor_t *processor;
+	uds_request_queue_processor_fn processor;
 	/* Queue of new incoming requests */
 	struct funnel_queue *main_queue;
 	/* Queue of old requests to retry */
@@ -92,8 +92,7 @@ static inline bool are_queues_idle(struct uds_request_queue *queue)
  * the thread did sleep before returning a new request.
  */
 static inline bool dequeue_request(struct uds_request_queue *queue,
-				   struct uds_request **request_ptr,
-				   bool *waited_ptr)
+				   struct uds_request **request_ptr, bool *waited_ptr)
 {
 	struct uds_request *request = poll_queues(queue);
 
@@ -113,10 +112,8 @@ static inline bool dequeue_request(struct uds_request_queue *queue,
 	return false;
 }
 
-static void wait_for_request(struct uds_request_queue *queue,
-			     bool dormant,
-			     unsigned long timeout,
-			     struct uds_request **request,
+static void wait_for_request(struct uds_request_queue *queue, bool dormant,
+			     unsigned long timeout, struct uds_request **request,
 			     bool *waited)
 {
 	if (dormant) {
@@ -133,7 +130,7 @@ static void wait_for_request(struct uds_request_queue *queue,
 
 static void request_queue_worker(void *arg)
 {
-	struct uds_request_queue *queue = (struct uds_request_queue *) arg;
+	struct uds_request_queue *queue = arg;
 	struct uds_request *request = NULL;
 	unsigned long time_batch = DEFAULT_WAIT_TIME;
 	bool dormant = atomic_read(&queue->dormant);
@@ -195,7 +192,7 @@ static void request_queue_worker(void *arg)
 }
 
 int uds_make_request_queue(const char *queue_name,
-			   uds_request_queue_processor_t *processor,
+			   uds_request_queue_processor_fn processor,
 			   struct uds_request_queue **queue_ptr)
 {
 	int result;
@@ -222,7 +219,8 @@ int uds_make_request_queue(const char *queue_name,
 		return result;
 	}
 
-	result = uds_create_thread(request_queue_worker, queue, queue_name, &queue->thread);
+	result = uds_create_thread(request_queue_worker, queue, queue_name,
+				   &queue->thread);
 	if (result != UDS_SUCCESS) {
 		uds_request_queue_finish(queue);
 		return result;
@@ -239,7 +237,8 @@ static inline void wake_up_worker(struct uds_request_queue *queue)
 		wake_up(&queue->wait_head);
 }
 
-void uds_request_queue_enqueue(struct uds_request_queue *queue, struct uds_request *request)
+void uds_request_queue_enqueue(struct uds_request_queue *queue,
+			       struct uds_request *request)
 {
 	struct funnel_queue *sub_queue;
 	bool unbatched = request->unbatched;

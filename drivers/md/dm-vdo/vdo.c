@@ -60,7 +60,6 @@
 #include "status-codes.h"
 #include "vio.h"
 
-
 enum { PARANOID_THREAD_CONSISTENCY_CHECKS = 0 };
 
 struct sync_completion {
@@ -90,10 +89,10 @@ void vdo_initialize_device_registry_once(void)
 	rwlock_init(&registry.lock);
 }
 
-/** vdo_is_equal() - Implements vdo_filter_t. */
+/** vdo_is_equal() - Implements vdo_filter_fn. */
 static bool vdo_is_equal(struct vdo *vdo, const void *context)
 {
-	return ((void *) vdo == context);
+	return (vdo == context);
 }
 
 /**
@@ -105,13 +104,15 @@ static bool vdo_is_equal(struct vdo *vdo, const void *context)
  *
  * Return: the vdo object found, if any.
  */
-static struct vdo * __must_check filter_vdos_locked(vdo_filter_t *filter, const void *context)
+static struct vdo * __must_check filter_vdos_locked(vdo_filter_fn filter,
+						    const void *context)
 {
 	struct vdo *vdo;
 
-	list_for_each_entry(vdo, &registry.links, registration)
+	list_for_each_entry(vdo, &registry.links, registration) {
 		if (filter(vdo, context))
 			return vdo;
+	}
 
 	return NULL;
 }
@@ -121,13 +122,14 @@ static struct vdo * __must_check filter_vdos_locked(vdo_filter_t *filter, const 
  * @filter: The filter function to apply to vdos.
  * @context: A bit of context to provide the filter.
  */
-struct vdo *vdo_find_matching(vdo_filter_t *filter, const void *context)
+struct vdo *vdo_find_matching(vdo_filter_fn filter, const void *context)
 {
 	struct vdo *vdo;
 
 	read_lock(&registry.lock);
 	vdo = filter_vdos_locked(filter, context);
 	read_unlock(&registry.lock);
+
 	return vdo;
 }
 
@@ -180,8 +182,8 @@ static void uninitialize_thread_config(struct thread_config *config)
 	memset(config, 0, sizeof(struct thread_config));
 }
 
-static void
-assign_thread_ids(struct thread_config *config, thread_id_t thread_ids[], zone_count_t count)
+static void assign_thread_ids(struct thread_config *config,
+			      thread_id_t thread_ids[], zone_count_t count)
 {
 	zone_count_t zone;
 
@@ -198,8 +200,8 @@ assign_thread_ids(struct thread_config *config, thread_id_t thread_ids[], zone_c
  *
  * Return: VDO_SUCCESS or an error.
  */
-static int __must_check
-initialize_thread_config(struct thread_count_config counts, struct thread_config *config)
+static int __must_check initialize_thread_config(struct thread_count_config counts,
+						 struct thread_config *config)
 {
 	int result;
 	bool single = ((counts.logical_zones + counts.physical_zones + counts.hash_zones) == 0);
@@ -215,37 +217,29 @@ initialize_thread_config(struct thread_count_config counts, struct thread_config
 		config->hash_zone_count = counts.hash_zones;
 	}
 
-	result = uds_allocate(config->logical_zone_count,
-			      thread_id_t,
-			      "logical thread array",
-			      &config->logical_threads);
+	result = uds_allocate(config->logical_zone_count, thread_id_t,
+			      "logical thread array", &config->logical_threads);
 	if (result != VDO_SUCCESS) {
 		uninitialize_thread_config(config);
 		return result;
 	}
 
-	result = uds_allocate(config->physical_zone_count,
-			      thread_id_t,
-			      "physical thread array",
-			      &config->physical_threads);
+	result = uds_allocate(config->physical_zone_count, thread_id_t,
+			      "physical thread array", &config->physical_threads);
 	if (result != VDO_SUCCESS) {
 		uninitialize_thread_config(config);
 		return result;
 	}
 
-	result = uds_allocate(config->hash_zone_count,
-			      thread_id_t,
-			      "hash thread array",
-			      &config->hash_zone_threads);
+	result = uds_allocate(config->hash_zone_count, thread_id_t,
+			      "hash thread array", &config->hash_zone_threads);
 	if (result != VDO_SUCCESS) {
 		uninitialize_thread_config(config);
 		return result;
 	}
 
-	result = uds_allocate(config->bio_thread_count,
-			      thread_id_t,
-			      "bio thread array",
-			      &config->bio_threads);
+	result = uds_allocate(config->bio_thread_count, thread_id_t,
+			      "bio thread array", &config->bio_threads);
 	if (result != VDO_SUCCESS) {
 		uninitialize_thread_config(config);
 		return result;
@@ -289,7 +283,8 @@ static int __must_check read_geometry_block(struct vdo *vdo)
 	if (result != VDO_SUCCESS)
 		return result;
 
-	result = create_metadata_vio(vdo, VIO_TYPE_GEOMETRY, VIO_PRIORITY_HIGH, NULL, block, &vio);
+	result = create_metadata_vio(vdo, VIO_TYPE_GEOMETRY, VIO_PRIORITY_HIGH, NULL,
+				     block, &vio);
 	if (result != VDO_SUCCESS) {
 		uds_free(block);
 		return result;
@@ -300,7 +295,8 @@ static int __must_check read_geometry_block(struct vdo *vdo)
 	 * bio_offset field is 0, so the fact that vio_reset_bio() will subtract that offset from
 	 * the supplied pbn is not a problem.
 	 */
-	result = vio_reset_bio(vio, block, NULL, REQ_OP_READ, VDO_GEOMETRY_BLOCK_LOCATION);
+	result = vio_reset_bio(vio, block, NULL, REQ_OP_READ,
+			       VDO_GEOMETRY_BLOCK_LOCATION);
 	if (result != VDO_SUCCESS) {
 		free_vio(uds_forget(vio));
 		uds_free(block);
@@ -322,12 +318,9 @@ static int __must_check read_geometry_block(struct vdo *vdo)
 	return result;
 }
 
-static bool get_zone_thread_name(const thread_id_t thread_ids[],
-				 zone_count_t count,
-				 thread_id_t id,
-				 const char *prefix,
-				 char *buffer,
-				 size_t buffer_length)
+static bool get_zone_thread_name(const thread_id_t thread_ids[], zone_count_t count,
+				 thread_id_t id, const char *prefix,
+				 char *buffer, size_t buffer_length)
 {
 	if (id >= thread_ids[0]) {
 		thread_id_t index = id - thread_ids[0];
@@ -337,6 +330,7 @@ static bool get_zone_thread_name(const thread_id_t thread_ids[],
 			return true;
 		}
 	}
+
 	return false;
 }
 
@@ -350,11 +344,8 @@ static bool get_zone_thread_name(const thread_id_t thread_ids[],
  * The physical layer may add a prefix identifying the product; the output from this function
  * should just identify the thread.
  */
-static void
-get_thread_name(const struct thread_config *thread_config,
-		thread_id_t thread_id,
-		char *buffer,
-		size_t buffer_length)
+static void get_thread_name(const struct thread_config *thread_config,
+			    thread_id_t thread_id, char *buffer, size_t buffer_length)
 {
 	if (thread_id == thread_config->journal_thread) {
 		if (thread_config->packer_thread == thread_id) {
@@ -389,34 +380,22 @@ get_thread_name(const struct thread_config *thread_config,
 
 	if (get_zone_thread_name(thread_config->logical_threads,
 				 thread_config->logical_zone_count,
-				 thread_id,
-				 "logQ",
-				 buffer,
-				 buffer_length))
+				 thread_id, "logQ", buffer, buffer_length))
 		return;
 
 	if (get_zone_thread_name(thread_config->physical_threads,
 				 thread_config->physical_zone_count,
-				 thread_id,
-				 "physQ",
-				 buffer,
-				 buffer_length))
+				 thread_id, "physQ", buffer, buffer_length))
 		return;
 
 	if (get_zone_thread_name(thread_config->hash_zone_threads,
 				 thread_config->hash_zone_count,
-				 thread_id,
-				 "hashQ",
-				 buffer,
-				 buffer_length))
+				 thread_id, "hashQ", buffer, buffer_length))
 		return;
 
 	if (get_zone_thread_name(thread_config->bio_threads,
 				 thread_config->bio_thread_count,
-				 thread_id,
-				 "bioQ",
-				 buffer,
-				 buffer_length))
+				 thread_id, "bioQ", buffer, buffer_length))
 		return;
 
 	/* Some sort of misconfiguration? */
@@ -438,11 +417,9 @@ get_thread_name(const struct thread_config *thread_config,
  *
  * Return: VDO_SUCCESS or an error.
  */
-int vdo_make_thread(struct vdo *vdo,
-		    thread_id_t thread_id,
+int vdo_make_thread(struct vdo *vdo, thread_id_t thread_id,
 		    const struct vdo_work_queue_type *type,
-		    unsigned int queue_count,
-		    void *contexts[])
+		    unsigned int queue_count, void *contexts[])
 {
 	struct vdo_thread *thread = &vdo->threads[thread_id];
 	char queue_name[MAX_VDO_WORK_QUEUE_NAME_LEN];
@@ -450,21 +427,17 @@ int vdo_make_thread(struct vdo *vdo,
 	if (type == NULL)
 		type = &default_queue_type;
 
-	if (thread->queue != NULL)
+	if (thread->queue != NULL) {
 		return ASSERT(vdo_work_queue_type_is(thread->queue, type),
 			      "already constructed vdo thread %u is of the correct type",
 			      thread_id);
+	}
 
 	thread->vdo = vdo;
 	thread->thread_id = thread_id;
 	get_thread_name(&vdo->thread_config, thread_id, queue_name, sizeof(queue_name));
-	return vdo_make_work_queue(vdo->thread_name_prefix,
-				   queue_name,
-				   thread,
-				   type,
-				   queue_count,
-				   contexts,
-				   &thread->queue);
+	return vdo_make_work_queue(vdo->thread_name_prefix, queue_name, thread,
+				   type, queue_count, contexts, &thread->queue);
 }
 
 /**
@@ -497,8 +470,8 @@ static int register_vdo(struct vdo *vdo)
  * @instance: The instance number of the vdo
  * @reason: The buffer to hold the failure reason on error
  */
-static int
-initialize_vdo(struct vdo *vdo, struct device_config *config, unsigned int instance, char **reason)
+static int initialize_vdo(struct vdo *vdo, struct device_config *config,
+			  unsigned int instance, char **reason)
 {
 	int result;
 	zone_count_t i;
@@ -527,13 +500,10 @@ initialize_vdo(struct vdo *vdo, struct device_config *config, unsigned int insta
 	uds_log_info("zones: %d logical, %d physical, %d hash; total threads: %d",
 		     config->thread_counts.logical_zones,
 		     config->thread_counts.physical_zones,
-		     config->thread_counts.hash_zones,
-		     vdo->thread_config.thread_count);
+		     config->thread_counts.hash_zones, vdo->thread_config.thread_count);
 
 	/* Compression context storage */
-	result = uds_allocate(config->thread_counts.cpu_threads,
-			      char *,
-			      "LZ4 context",
+	result = uds_allocate(config->thread_counts.cpu_threads, char *, "LZ4 context",
 			      &vdo->compression_context);
 	if (result != VDO_SUCCESS) {
 		*reason = "cannot allocate LZ4 context";
@@ -541,9 +511,7 @@ initialize_vdo(struct vdo *vdo, struct device_config *config, unsigned int insta
 	}
 
 	for (i = 0; i < config->thread_counts.cpu_threads; i++) {
-		result = uds_allocate(LZ4_MEM_COMPRESS,
-				      char,
-				      "LZ4 context",
+		result = uds_allocate(LZ4_MEM_COMPRESS, char, "LZ4 context",
 				      &vdo->compression_context[i]);
 		if (result != VDO_SUCCESS) {
 			*reason = "cannot allocate LZ4 context";
@@ -570,9 +538,7 @@ initialize_vdo(struct vdo *vdo, struct device_config *config, unsigned int insta
  *
  * Return: VDO_SUCCESS or an error.
  */
-int vdo_make(unsigned int instance,
-	     struct device_config *config,
-	     char **reason,
+int vdo_make(unsigned int instance, struct device_config *config, char **reason,
 	     struct vdo **vdo_ptr)
 {
 	int result;
@@ -596,26 +562,18 @@ int vdo_make(unsigned int instance,
 	/* From here on, the caller will clean up if there is an error. */
 	*vdo_ptr = vdo;
 
-	snprintf(vdo->thread_name_prefix,
-		 sizeof(vdo->thread_name_prefix),
-		 "%s%u",
-		 MODULE_NAME,
-		 instance);
+	snprintf(vdo->thread_name_prefix, sizeof(vdo->thread_name_prefix),
+		 "%s%u", MODULE_NAME, instance);
 	BUG_ON(vdo->thread_name_prefix[0] == '\0');
 	result = uds_allocate(vdo->thread_config.thread_count,
-			      struct vdo_thread,
-			      __func__,
-			      &vdo->threads);
+			      struct vdo_thread, __func__, &vdo->threads);
 	if (result != VDO_SUCCESS) {
 		*reason = "Cannot allocate thread structures";
 		return result;
 	}
 
-	result = vdo_make_thread(vdo,
-				 vdo->thread_config.admin_thread,
-				 &default_queue_type,
-				 1,
-				 NULL);
+	result = vdo_make_thread(vdo, vdo->thread_config.admin_thread,
+				 &default_queue_type, 1, NULL);
 	if (result != VDO_SUCCESS) {
 		*reason = "Cannot make admin thread";
 		return result;
@@ -635,8 +593,7 @@ int vdo_make(unsigned int instance,
 
 	BUG_ON(vdo->device_config->logical_block_size <= 0);
 	BUG_ON(vdo->device_config->owned_device == NULL);
-	result = make_data_vio_pool(vdo,
-				    MAXIMUM_VDO_USER_VIOS,
+	result = make_data_vio_pool(vdo, MAXIMUM_VDO_USER_VIOS,
 				    MAXIMUM_VDO_USER_VIOS * 3 / 4,
 				    &vdo->data_vio_pool);
 	if (result != VDO_SUCCESS) {
@@ -647,28 +604,23 @@ int vdo_make(unsigned int instance,
 	result = vdo_make_io_submitter(config->thread_counts.bio_threads,
 				       config->thread_counts.bio_rotation_interval,
 				       get_data_vio_pool_request_limit(vdo->data_vio_pool),
-				       vdo,
-				       &vdo->io_submitter);
+				       vdo, &vdo->io_submitter);
 	if (result != VDO_SUCCESS) {
 		*reason = "bio submission initialization failed";
 		return result;
 	}
 
 	if (vdo_uses_bio_ack_queue(vdo)) {
-		result = vdo_make_thread(vdo,
-					 vdo->thread_config.bio_ack_thread,
+		result = vdo_make_thread(vdo, vdo->thread_config.bio_ack_thread,
 					 &bio_ack_q_type,
-					 config->thread_counts.bio_ack_threads,
-					 NULL);
+					 config->thread_counts.bio_ack_threads, NULL);
 		if (result != VDO_SUCCESS) {
 			*reason = "bio ack queue initialization failed";
 			return result;
 		}
 	}
 
-	result = vdo_make_thread(vdo,
-				 vdo->thread_config.cpu_thread,
-				 &cpu_q_type,
+	result = vdo_make_thread(vdo, vdo->thread_config.cpu_thread, &cpu_q_type,
 				 config->thread_counts.cpu_threads,
 				 (void **) vdo->compression_context);
 	if (result != VDO_SUCCESS) {
@@ -798,18 +750,13 @@ static int initialize_super_block(struct vdo *vdo, struct vdo_super_block *super
 {
 	int result;
 
-	result = uds_allocate(VDO_BLOCK_SIZE,
-			      char,
-			      "encoded super block",
+	result = uds_allocate(VDO_BLOCK_SIZE, char, "encoded super block",
 			      (char **) &vdo->super_block.buffer);
 	if (result != VDO_SUCCESS)
 		return result;
 
-	return allocate_vio_components(vdo,
-				       VIO_TYPE_SUPER_BLOCK,
-				       VIO_PRIORITY_METADATA,
-				       NULL,
-				       1,
+	return allocate_vio_components(vdo, VIO_TYPE_SUPER_BLOCK,
+				       VIO_PRIORITY_METADATA, NULL, 1,
 				       (char *) super_block->buffer,
 				       &vdo->super_block.vio);
 }
@@ -846,7 +793,8 @@ static void read_super_block_endio(struct bio *bio)
 	struct vio *vio = bio->bi_private;
 	struct vdo_completion *parent = vio->completion.parent;
 
-	continue_vio_after_io(vio, finish_reading_super_block, parent->callback_thread_id);
+	continue_vio_after_io(vio, finish_reading_super_block,
+			      parent->callback_thread_id);
 }
 
 /**
@@ -941,8 +889,7 @@ int vdo_synchronous_flush(struct vdo *vdo)
 	int result;
 	struct bio bio;
 
-	bio_init(&bio, vdo_get_backing_device(vdo), 0, 0,
-		 REQ_OP_WRITE | REQ_PREFLUSH);
+	bio_init(&bio, vdo_get_backing_device(vdo), 0, 0, REQ_OP_WRITE | REQ_PREFLUSH);
 	submit_bio_wait(&bio);
 	result = blk_status_to_errno(bio.bi_status);
 
@@ -1053,7 +1000,8 @@ static void super_block_write_endio(struct bio *bio)
 	struct vio *vio = bio->bi_private;
 	struct vdo_completion *parent = vio->completion.parent;
 
-	continue_vio_after_io(vio, continue_super_block_parent, parent->callback_thread_id);
+	continue_vio_after_io(vio, continue_super_block_parent,
+			      parent->callback_thread_id);
 }
 
 /**
@@ -1082,8 +1030,7 @@ void vdo_save_components(struct vdo *vdo, struct vdo_completion *parent)
 	super_block->vio.completion.callback_thread_id = parent->callback_thread_id;
 	submit_metadata_vio(&super_block->vio,
 			    vdo_get_data_region_start(vdo->geometry),
-			    super_block_write_endio,
-			    handle_save_error,
+			    super_block_write_endio, handle_save_error,
 			    REQ_OP_WRITE | REQ_PREFLUSH | REQ_FUA);
 }
 
@@ -1097,9 +1044,8 @@ void vdo_save_components(struct vdo *vdo, struct vdo_completion *parent)
  *
  * Return: VDO_SUCCESS or an error.
  */
-int vdo_register_read_only_listener(struct vdo *vdo,
-				    void *listener,
-				    vdo_read_only_notification *notification,
+int vdo_register_read_only_listener(struct vdo *vdo, void *listener,
+				    vdo_read_only_notification_fn notification,
 				    thread_id_t thread_id)
 {
 	struct vdo_thread *thread = &vdo->threads[thread_id];
@@ -1111,7 +1057,8 @@ int vdo_register_read_only_listener(struct vdo *vdo,
 	if (result != VDO_SUCCESS)
 		return result;
 
-	result = uds_allocate(1, struct read_only_listener, __func__, &read_only_listener);
+	result = uds_allocate(1, struct read_only_listener, __func__,
+			      &read_only_listener);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -1132,7 +1079,7 @@ int vdo_register_read_only_listener(struct vdo *vdo,
  *
  * This will save the read-only state to the super block.
  *
- * Implements vdo_read_only_notification.
+ * Implements vdo_read_only_notification_fn.
  */
 static void notify_vdo_of_read_only_mode(void *listener, struct vdo_completion *parent)
 {
@@ -1165,14 +1112,13 @@ int vdo_enable_read_only_entry(struct vdo *vdo)
 	}
 
 	spin_lock_init(&notifier->lock);
-	vdo_initialize_completion(&notifier->completion, vdo, VDO_READ_ONLY_MODE_COMPLETION);
+	vdo_initialize_completion(&notifier->completion, vdo,
+				  VDO_READ_ONLY_MODE_COMPLETION);
 
 	for (id = 0; id < vdo->thread_config.thread_count; id++)
 		vdo->threads[id].is_read_only = is_read_only;
 
-	return vdo_register_read_only_listener(vdo,
-					       vdo,
-					       notify_vdo_of_read_only_mode,
+	return vdo_register_read_only_listener(vdo, vdo, notify_vdo_of_read_only_mode,
 					       vdo->thread_config.admin_thread);
 }
 
@@ -1240,7 +1186,8 @@ static void finish_entering_read_only_mode(struct vdo_completion *completion)
 	spin_unlock(&notifier->lock);
 
 	if (notifier->waiter != NULL)
-		vdo_continue_completion(uds_forget(notifier->waiter), completion->result);
+		vdo_continue_completion(uds_forget(notifier->waiter),
+					completion->result);
 }
 
 /**
@@ -1270,36 +1217,31 @@ static void make_thread_read_only(struct vdo_completion *completion)
 
 	if (listener != NULL) {
 		/* We have a listener to notify */
-		vdo_prepare_completion(completion,
-				       make_thread_read_only,
-				       make_thread_read_only,
-				       thread_id,
+		vdo_prepare_completion(completion, make_thread_read_only,
+				       make_thread_read_only, thread_id,
 				       listener);
 		listener->notify(listener->listener, completion);
 		return;
 	}
 
 	/* We're done with this thread */
-	if (++thread_id == vdo->thread_config.dedupe_thread)
+	if (++thread_id == vdo->thread_config.dedupe_thread) {
 		/*
 		 * We don't want to notify the dedupe thread since it may be
 		 * blocked rebuilding the index.
 		 */
-		++thread_id;
+		thread_id++;
+	}
 
-	if (thread_id >= vdo->thread_config.thread_count)
+	if (thread_id >= vdo->thread_config.thread_count) {
 		/* There are no more threads */
-		vdo_prepare_completion(completion,
+		vdo_prepare_completion(completion, finish_entering_read_only_mode,
 				       finish_entering_read_only_mode,
-				       finish_entering_read_only_mode,
-				       vdo->thread_config.admin_thread,
-				       NULL);
-	else
-		vdo_prepare_completion(completion,
-				       make_thread_read_only,
-				       make_thread_read_only,
-				       thread_id,
-				       NULL);
+				       vdo->thread_config.admin_thread, NULL);
+	} else {
+		vdo_prepare_completion(completion, make_thread_read_only,
+				       make_thread_read_only, thread_id, NULL);
+	}
 
 	vdo_launch_completion(completion);
 }
@@ -1366,9 +1308,10 @@ void vdo_enter_read_only_mode(struct vdo *vdo, int error_code)
 
 	if (thread_id != VDO_INVALID_THREAD_ID) {
 		thread = &vdo->threads[thread_id];
-		if (thread->is_read_only)
+		if (thread->is_read_only) {
 			/* This thread has already gone read-only. */
 			return;
+		}
 
 		/* Record for this thread that the VDO is read-only. */
 		thread->is_read_only = true;
@@ -1384,9 +1327,10 @@ void vdo_enter_read_only_mode(struct vdo *vdo, int error_code)
 	}
 	spin_unlock(&notifier->lock);
 
-	if (!notify)
+	if (!notify) {
 		/* The notifier is already aware of a read-only error */
 		return;
+	}
 
 	/* Initiate a notification starting on the lowest numbered thread. */
 	vdo_launch_completion_callback(&notifier->completion, make_thread_read_only, 0);
@@ -1450,7 +1394,8 @@ void vdo_enter_recovery_mode(struct vdo *vdo)
 static void complete_synchronous_action(struct vdo_completion *completion)
 {
 	vdo_assert_completion_type(completion, VDO_SYNC_COMPLETION);
-	complete(&(container_of(completion, struct sync_completion, vdo_completion)->completion));
+	complete(&(container_of(completion, struct sync_completion,
+				vdo_completion)->completion));
 }
 
 /**
@@ -1460,10 +1405,8 @@ static void complete_synchronous_action(struct vdo_completion *completion)
  * @thread_id: The thread on which to run the action.
  * @parent: The parent of the sync completion (may be NULL).
  */
-static int perform_synchronous_action(struct vdo *vdo,
-				      vdo_action *action,
-				      thread_id_t thread_id,
-				      void *parent)
+static int perform_synchronous_action(struct vdo *vdo, vdo_action_fn action,
+				      thread_id_t thread_id, void *parent)
 {
 	struct sync_completion sync;
 
@@ -1487,9 +1430,10 @@ static void set_compression_callback(struct vdo_completion *completion)
 
 	if (*enable != was_enabled) {
 		WRITE_ONCE(vdo->compressing, *enable);
-		if (was_enabled)
+		if (was_enabled) {
 			/* Signal the packer to flush since compression has been disabled. */
 			vdo_flush_packer(vdo->packer);
+		}
 	}
 
 	uds_log_info("compression is %s", (*enable ? "enabled" : "disabled"));
@@ -1506,8 +1450,7 @@ static void set_compression_callback(struct vdo_completion *completion)
  */
 bool vdo_set_compressing(struct vdo *vdo, bool enable)
 {
-	perform_synchronous_action(vdo,
-				   set_compression_callback,
+	perform_synchronous_action(vdo, set_compression_callback,
 				   vdo->thread_config.packer_thread,
 				   &enable);
 	return enable;
@@ -1555,7 +1498,8 @@ static void copy_bio_stat(struct bio_stats *b, const struct atomic_bio_stats *a)
 	b->fua = atomic64_read(&a->fua);
 }
 
-static struct bio_stats subtract_bio_stats(struct bio_stats minuend, struct bio_stats subtrahend)
+static struct bio_stats subtract_bio_stats(struct bio_stats minuend,
+					   struct bio_stats subtrahend)
 {
 	return (struct bio_stats) {
 		.read = minuend.read - subtrahend.read,
@@ -1671,11 +1615,14 @@ static void get_vdo_statistics(const struct vdo *vdo, struct vdo_statistics *sta
 	copy_bio_stat(&stats->bios_page_cache, &vdo->stats.bios_page_cache);
 	copy_bio_stat(&stats->bios_out_completed, &vdo->stats.bios_out_completed);
 	copy_bio_stat(&stats->bios_meta_completed, &vdo->stats.bios_meta_completed);
-	copy_bio_stat(&stats->bios_journal_completed, &vdo->stats.bios_journal_completed);
-	copy_bio_stat(&stats->bios_page_cache_completed, &vdo->stats.bios_page_cache_completed);
+	copy_bio_stat(&stats->bios_journal_completed,
+		      &vdo->stats.bios_journal_completed);
+	copy_bio_stat(&stats->bios_page_cache_completed,
+		      &vdo->stats.bios_page_cache_completed);
 	copy_bio_stat(&stats->bios_acknowledged, &vdo->stats.bios_acknowledged);
 	copy_bio_stat(&stats->bios_acknowledged_partial, &vdo->stats.bios_acknowledged_partial);
-	stats->bios_in_progress = subtract_bio_stats(stats->bios_in, stats->bios_acknowledged);
+	stats->bios_in_progress =
+		subtract_bio_stats(stats->bios_in, stats->bios_acknowledged);
 	uds_get_memory_stats(&stats->memory_usage.bytes_used,
 			     &stats->memory_usage.peak_bytes_used);
 }
@@ -1700,10 +1647,8 @@ static void vdo_fetch_statistics_callback(struct vdo_completion *completion)
  */
 void vdo_fetch_statistics(struct vdo *vdo, struct vdo_statistics *stats)
 {
-	perform_synchronous_action(vdo,
-				   vdo_fetch_statistics_callback,
-				   vdo->thread_config.admin_thread,
-				   stats);
+	perform_synchronous_action(vdo, vdo_fetch_statistics_callback,
+				   vdo->thread_config.admin_thread, stats);
 }
 
 /**
@@ -1762,8 +1707,7 @@ void vdo_dump_status(const struct vdo *vdo)
 void vdo_assert_on_admin_thread(const struct vdo *vdo, const char *name)
 {
 	ASSERT_LOG_ONLY((vdo_get_callback_thread_id() == vdo->thread_config.admin_thread),
-			"%s called on admin thread",
-			name);
+			"%s called on admin thread", name);
 }
 
 /**
@@ -1773,14 +1717,12 @@ void vdo_assert_on_admin_thread(const struct vdo *vdo, const char *name)
  * @logical_zone: The number of the logical zone.
  * @name: The name of the calling function.
  */
-void vdo_assert_on_logical_zone_thread(const struct vdo *vdo,
-				       zone_count_t logical_zone,
+void vdo_assert_on_logical_zone_thread(const struct vdo *vdo, zone_count_t logical_zone,
 				       const char *name)
 {
 	ASSERT_LOG_ONLY((vdo_get_callback_thread_id() ==
 			 vdo->thread_config.logical_threads[logical_zone]),
-			"%s called on logical thread",
-			name);
+			"%s called on logical thread", name);
 }
 
 /**
@@ -1791,13 +1733,11 @@ void vdo_assert_on_logical_zone_thread(const struct vdo *vdo,
  * @name: The name of the calling function.
  */
 void vdo_assert_on_physical_zone_thread(const struct vdo *vdo,
-					zone_count_t physical_zone,
-					const char *name)
+					zone_count_t physical_zone, const char *name)
 {
 	ASSERT_LOG_ONLY((vdo_get_callback_thread_id() ==
 			 vdo->thread_config.physical_threads[physical_zone]),
-			"%s called on physical thread",
-			name);
+			"%s called on physical thread", name);
 }
 
 /**
@@ -1815,8 +1755,7 @@ void vdo_assert_on_physical_zone_thread(const struct vdo *vdo,
  * Return: VDO_SUCCESS or VDO_OUT_OF_RANGE if the block number is invalid or an error code for any
  *         other failure.
  */
-int vdo_get_physical_zone(const struct vdo *vdo,
-			  physical_block_number_t pbn,
+int vdo_get_physical_zone(const struct vdo *vdo, physical_block_number_t pbn,
 			  struct physical_zone **zone_ptr)
 {
 	struct vdo_slab *slab;

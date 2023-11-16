@@ -96,11 +96,10 @@ struct packer {
 
 int vdo_get_compressed_block_fragment(enum block_mapping_state mapping_state,
 				      struct compressed_block *block,
-				      u16 *fragment_offset,
-				      u16 *fragment_size);
+				      u16 *fragment_offset, u16 *fragment_size);
 
-int __must_check
-vdo_make_packer(struct vdo *vdo, block_count_t bin_count, struct packer **packer_ptr);
+int __must_check vdo_make_packer(struct vdo *vdo, block_count_t bin_count,
+				 struct packer **packer_ptr);
 
 void vdo_free_packer(struct packer *packer);
 

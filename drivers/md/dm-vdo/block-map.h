@@ -265,14 +265,15 @@ struct block_map {
 };
 
 /**
- * typedef vdo_entry_callback - A function to be called for each allocated PBN when traversing the
- *                              forest.
+ * typedef vdo_entry_callback_fn - A function to be called for each allocated PBN when traversing
+ *                                 the forest.
  * @pbn: A PBN of a tree node.
  * @completion: The parent completion of the traversal.
  *
  * Return: VDO_SUCCESS or an error.
  */
-typedef int vdo_entry_callback(physical_block_number_t pbn, struct vdo_completion *completion);
+typedef int (*vdo_entry_callback_fn)(physical_block_number_t pbn,
+				     struct vdo_completion *completion);
 
 static inline struct vdo_page_completion *as_vdo_page_completion(struct vdo_completion *completion)
 {
@@ -283,13 +284,9 @@ static inline struct vdo_page_completion *as_vdo_page_completion(struct vdo_comp
 void vdo_release_page_completion(struct vdo_completion *completion);
 
 void vdo_get_page(struct vdo_page_completion *page_completion,
-		  struct block_map_zone *zone,
-		  physical_block_number_t pbn,
-		  bool writable,
-		  void *parent,
-		  vdo_action *callback,
-		  vdo_action *error_handler,
-		  bool requeue);
+		  struct block_map_zone *zone, physical_block_number_t pbn,
+		  bool writable, void *parent, vdo_action_fn callback,
+		  vdo_action_fn error_handler, bool requeue);
 
 void vdo_request_page_write(struct vdo_completion *completion);
 
@@ -304,39 +301,33 @@ vdo_as_block_map_page(struct tree_page *tree_page)
 	return (struct block_map_page *) tree_page->page_buffer;
 }
 
-bool vdo_copy_valid_page(char *buffer,
-			 nonce_t nonce,
+bool vdo_copy_valid_page(char *buffer, nonce_t nonce,
 			 physical_block_number_t pbn,
 			 struct block_map_page *page);
 
 void vdo_find_block_map_slot(struct data_vio *data_vio);
 
-physical_block_number_t
-vdo_find_block_map_page_pbn(struct block_map *map, page_number_t page_number);
+physical_block_number_t vdo_find_block_map_page_pbn(struct block_map *map,
+						    page_number_t page_number);
 
 void vdo_write_tree_page(struct tree_page *page, struct block_map_zone *zone);
 
-void vdo_traverse_forest(struct block_map *map,
-			 vdo_entry_callback *callback,
+void vdo_traverse_forest(struct block_map *map, vdo_entry_callback_fn callback,
 			 struct vdo_completion *parent);
 
 int __must_check vdo_decode_block_map(struct block_map_state_2_0 state,
-				      block_count_t logical_blocks,
-				      struct vdo *vdo,
-				      struct recovery_journal *journal,
-				      nonce_t nonce,
-				      page_count_t cache_size,
-				      block_count_t maximum_age,
+				      block_count_t logical_blocks, struct vdo *vdo,
+				      struct recovery_journal *journal, nonce_t nonce,
+				      page_count_t cache_size, block_count_t maximum_age,
 				      struct block_map **map_ptr);
 
-void vdo_drain_block_map(struct block_map *map,
-			 const struct admin_state_code *operation,
+void vdo_drain_block_map(struct block_map *map, const struct admin_state_code *operation,
 			 struct vdo_completion *parent);
 
 void vdo_resume_block_map(struct block_map *map, struct vdo_completion *parent);
 
-int __must_check
-vdo_prepare_to_grow_block_map(struct block_map *map, block_count_t new_logical_blocks);
+int __must_check vdo_prepare_to_grow_block_map(struct block_map *map,
+					       block_count_t new_logical_blocks);
 
 void vdo_grow_block_map(struct block_map *map, struct vdo_completion *parent);
 
@@ -344,18 +335,17 @@ void vdo_abandon_block_map_growth(struct block_map *map);
 
 void vdo_free_block_map(struct block_map *map);
 
-struct block_map_state_2_0 __must_check
-vdo_record_block_map(const struct block_map *map);
+struct block_map_state_2_0 __must_check vdo_record_block_map(const struct block_map *map);
 
 void vdo_initialize_block_map_from_journal(struct block_map *map,
 					   struct recovery_journal *journal);
 
 zone_count_t vdo_compute_logical_zone(struct data_vio *data_vio);
 
-void vdo_advance_block_map_era(struct block_map *map, sequence_number_t recovery_block_number);
+void vdo_advance_block_map_era(struct block_map *map,
+			       sequence_number_t recovery_block_number);
 
-void vdo_update_block_map_page(struct block_map_page *page,
-			       struct data_vio *data_vio,
+void vdo_update_block_map_page(struct block_map_page *page, struct data_vio *data_vio,
 			       physical_block_number_t pbn,
 			       enum block_mapping_state mapping_state,
 			       sequence_number_t *recovery_lock);

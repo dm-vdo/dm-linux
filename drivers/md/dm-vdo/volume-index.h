@@ -146,9 +146,8 @@ int __must_check uds_compute_volume_index_save_blocks(const struct configuration
 						      size_t block_size,
 						      u64 *block_count);
 
-unsigned int __must_check
-uds_get_volume_index_zone(const struct volume_index *volume_index,
-			  const struct uds_record_name *name);
+unsigned int __must_check uds_get_volume_index_zone(const struct volume_index *volume_index,
+						    const struct uds_record_name *name);
 
 bool __must_check uds_is_volume_index_sample(const struct volume_index *volume_index,
 					     const struct uds_record_name *name);
@@ -164,15 +163,16 @@ int __must_check uds_get_volume_index_record(struct volume_index *volume_index,
 					     const struct uds_record_name *name,
 					     struct volume_index_record *record);
 
-int __must_check
-uds_put_volume_index_record(struct volume_index_record *record, u64 virtual_chapter);
+int __must_check uds_put_volume_index_record(struct volume_index_record *record,
+					     u64 virtual_chapter);
 
 int __must_check uds_remove_volume_index_record(struct volume_index_record *record);
 
-int __must_check
-uds_set_volume_index_record_chapter(struct volume_index_record *record, u64 virtual_chapter);
+int __must_check uds_set_volume_index_record_chapter(struct volume_index_record *record,
+						     u64 virtual_chapter);
 
-void uds_set_volume_index_open_chapter(struct volume_index *volume_index, u64 virtual_chapter);
+void uds_set_volume_index_open_chapter(struct volume_index *volume_index,
+				       u64 virtual_chapter);
 
 void uds_set_volume_index_zone_open_chapter(struct volume_index *volume_index,
 					    unsigned int zone_number,

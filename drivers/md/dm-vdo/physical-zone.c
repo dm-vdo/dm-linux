@@ -154,10 +154,9 @@ void vdo_unassign_pbn_lock_provisional_reference(struct pbn_lock *lock)
  *
  * This method is called when the lock is released.
  */
-static void
-release_pbn_lock_provisional_reference(struct pbn_lock *lock,
-				       physical_block_number_t locked_pbn,
-				       struct block_allocator *allocator)
+static void release_pbn_lock_provisional_reference(struct pbn_lock *lock,
+						   physical_block_number_t locked_pbn,
+						   struct block_allocator *allocator)
 {
 	int result;
 
@@ -165,11 +164,12 @@ release_pbn_lock_provisional_reference(struct pbn_lock *lock,
 		return;
 
 	result = vdo_release_block_reference(allocator, locked_pbn);
-	if (result != VDO_SUCCESS)
+	if (result != VDO_SUCCESS) {
 		uds_log_error_strerror(result,
 				       "Failed to release reference to %s physical block %llu",
 				       lock->implementation->release_reason,
 				       (unsigned long long) locked_pbn);
+	}
 
 	vdo_unassign_pbn_lock_provisional_reference(lock);
 }
@@ -241,11 +241,8 @@ static int make_pbn_lock_pool(size_t capacity, struct pbn_lock_pool **pool_ptr)
 	struct pbn_lock_pool *pool;
 	int result;
 
-	result = uds_allocate_extended(struct pbn_lock_pool,
-				       capacity,
-				       idle_pbn_lock,
-				       __func__,
-				       &pool);
+	result = uds_allocate_extended(struct pbn_lock_pool, capacity, idle_pbn_lock,
+				       __func__, &pool);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -290,17 +287,17 @@ static void free_pbn_lock_pool(struct pbn_lock_pool *pool)
  *
  * Return: VDO_SUCCESS, or VDO_LOCK_ERROR if the pool is empty.
  */
-static int __must_check
-borrow_pbn_lock_from_pool(struct pbn_lock_pool *pool,
-			  enum pbn_lock_type type,
-			  struct pbn_lock **lock_ptr)
+static int __must_check borrow_pbn_lock_from_pool(struct pbn_lock_pool *pool,
+						  enum pbn_lock_type type,
+						  struct pbn_lock **lock_ptr)
 {
 	int result;
 	struct list_head *idle_entry;
 	idle_pbn_lock *idle;
 
 	if (pool->borrowed >= pool->capacity)
-		return uds_log_error_strerror(VDO_LOCK_ERROR, "no free PBN locks left to borrow");
+		return uds_log_error_strerror(VDO_LOCK_ERROR,
+					      "no free PBN locks left to borrow");
 	pool->borrowed += 1;
 
 	result = ASSERT(!list_empty(&pool->idle_list),
@@ -372,11 +369,8 @@ int vdo_make_physical_zones(struct vdo *vdo, struct physical_zones **zones_ptr)
 	if (zone_count == 0)
 		return VDO_SUCCESS;
 
-	result = uds_allocate_extended(struct physical_zones,
-				       zone_count,
-				       struct physical_zone,
-				       __func__,
-				       &zones);
+	result = uds_allocate_extended(struct physical_zones, zone_count,
+				       struct physical_zone, __func__, &zones);
 	if (result != VDO_SUCCESS)
 		return result;
 
@@ -420,8 +414,8 @@ void vdo_free_physical_zones(struct physical_zones *zones)
  *
  * Return: The lock or NULL if the PBN is not locked.
  */
-struct pbn_lock *
-vdo_get_physical_zone_pbn_lock(struct physical_zone *zone, physical_block_number_t pbn)
+struct pbn_lock *vdo_get_physical_zone_pbn_lock(struct physical_zone *zone,
+						physical_block_number_t pbn)
 {
 	return ((zone == NULL) ? NULL : vdo_int_map_get(zone->pbn_operations, pbn));
 }
@@ -459,7 +453,8 @@ int vdo_attempt_physical_zone_pbn_lock(struct physical_zone *zone,
 		return result;
 	}
 
-	result = vdo_int_map_put(zone->pbn_operations, pbn, new_lock, false, (void **) &lock);
+	result = vdo_int_map_put(zone->pbn_operations, pbn, new_lock, false,
+				 (void **) &lock);
 	if (result != VDO_SUCCESS) {
 		return_pbn_lock_to_pool(zone->lock_pool, new_lock);
 		return result;
@@ -468,8 +463,7 @@ int vdo_attempt_physical_zone_pbn_lock(struct physical_zone *zone,
 	if (lock != NULL) {
 		/* The lock is already held, so we don't need the borrowed one. */
 		return_pbn_lock_to_pool(zone->lock_pool, uds_forget(new_lock));
-		result = ASSERT(lock->holder_count > 0,
-				"physical block %llu lock held",
+		result = ASSERT(lock->holder_count > 0, "physical block %llu lock held",
 				(unsigned long long) pbn);
 		if (result != VDO_SUCCESS)
 			return result;
@@ -500,19 +494,18 @@ static int allocate_and_lock_block(struct allocation *allocation)
 	if (result != VDO_SUCCESS)
 		return result;
 
-	result = vdo_attempt_physical_zone_pbn_lock(allocation->zone,
-						    allocation->pbn,
-						    allocation->write_lock_type,
-						    &lock);
+	result = vdo_attempt_physical_zone_pbn_lock(allocation->zone, allocation->pbn,
+						    allocation->write_lock_type, &lock);
 	if (result != VDO_SUCCESS)
 		return result;
 
-	if (lock->holder_count > 0)
+	if (lock->holder_count > 0) {
 		/* This block is already locked, which should be impossible. */
 		return uds_log_error_strerror(VDO_LOCK_ERROR,
 					      "Newly allocated block %llu was spuriously locked (holder_count=%u)",
 					      (unsigned long long) allocation->pbn,
 					      lock->holder_count);
+	}
 
 	/* We've successfully acquired a new lock, so mark it as ours. */
 	lock->holder_count += 1;
@@ -567,10 +560,12 @@ static bool continue_allocating(struct data_vio *data_vio)
 
 	if (allocation->wait_for_clean_slab) {
 		data_vio->waiter.callback = retry_allocation;
-		result = vdo_enqueue_clean_slab_waiter(zone->allocator, &data_vio->waiter);
-		if (result == VDO_SUCCESS)
+		result = vdo_enqueue_clean_slab_waiter(zone->allocator,
+						       &data_vio->waiter);
+		if (result == VDO_SUCCESS) {
 			/* We've enqueued to wait for a slab to be scrubbed. */
 			return true;
+		}
 
 		if ((result != VDO_NO_SPACE) || (was_waiting && tried_all)) {
 			vdo_set_completion_result(completion, result);
@@ -624,16 +619,17 @@ void vdo_release_physical_zone_pbn_lock(struct physical_zone *zone,
 	if (lock == NULL)
 		return;
 
-	ASSERT_LOG_ONLY(lock->holder_count > 0, "should not be releasing a lock that is not held");
+	ASSERT_LOG_ONLY(lock->holder_count > 0,
+			"should not be releasing a lock that is not held");
 
 	lock->holder_count -= 1;
-	if (lock->holder_count > 0)
+	if (lock->holder_count > 0) {
 		/* The lock was shared and is still referenced, so don't release it yet. */
 		return;
+	}
 
 	holder = vdo_int_map_remove(zone->pbn_operations, locked_pbn);
-	ASSERT_LOG_ONLY((lock == holder),
-			"physical block lock mismatch for block %llu",
+	ASSERT_LOG_ONLY((lock == holder), "physical block lock mismatch for block %llu",
 			(unsigned long long) locked_pbn);
 
 	release_pbn_lock_provisional_reference(lock, locked_pbn, zone->allocator);

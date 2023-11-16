@@ -36,12 +36,12 @@ enum notifier_state {
 };
 
 /**
- * typedef vdo_read_only_notification - A function to notify a listener that the VDO has gone
- *                                      read-only.
+ * typedef vdo_read_only_notification_fn - A function to notify a listener that the VDO has gone
+ *                                         read-only.
  * @listener: The object to notify.
  * @parent: The completion to notify in order to acknowledge the notification.
  */
-typedef void vdo_read_only_notification(void *listener, struct vdo_completion *parent);
+typedef void (*vdo_read_only_notification_fn)(void *listener, struct vdo_completion *parent);
 
 /*
  * An object to be notified when the VDO enters read-only mode
@@ -50,7 +50,7 @@ struct read_only_listener {
 	/* The listener */
 	void *listener;
 	/* The method to call to notify the listener */
-	vdo_read_only_notification *notify;
+	vdo_read_only_notification_fn notify;
 	/* A pointer to the next listener */
 	struct read_only_listener *next;
 };
@@ -168,7 +168,7 @@ struct vdo_administrator {
 struct vdo {
 	char thread_name_prefix[MAX_VDO_WORK_QUEUE_NAME_LEN];
 	struct vdo_thread *threads;
-	vdo_action *action;
+	vdo_action_fn action;
 	struct vdo_completion *completion;
 	struct vio_tracer *vio_tracer;
 
@@ -290,28 +290,27 @@ static inline bool vdo_uses_bio_ack_queue(struct vdo *vdo)
 }
 
 /**
- * typedef vdo_filter_t - Method type for vdo matching methods.
+ * typedef vdo_filter_fn - Method type for vdo matching methods.
  *
  * A filter function returns false if the vdo doesn't match.
  */
-typedef bool vdo_filter_t(struct vdo *vdo, const void *context);
+typedef bool (*vdo_filter_fn)(struct vdo *vdo, const void *context);
 
 void vdo_initialize_device_registry_once(void);
-struct vdo * __must_check vdo_find_matching(vdo_filter_t *filter, const void *context);
+struct vdo * __must_check vdo_find_matching(vdo_filter_fn filter, const void *context);
 
-int __must_check vdo_make_thread(struct vdo *vdo,
-				 thread_id_t thread_id,
+int __must_check vdo_make_thread(struct vdo *vdo, thread_id_t thread_id,
 				 const struct vdo_work_queue_type *type,
-				 unsigned int queue_count,
-				 void *contexts[]);
+				 unsigned int queue_count, void *contexts[]);
 
-static inline int __must_check vdo_make_default_thread(struct vdo *vdo, thread_id_t thread_id)
+static inline int __must_check vdo_make_default_thread(struct vdo *vdo,
+						       thread_id_t thread_id)
 {
 	return vdo_make_thread(vdo, thread_id, NULL, 1, NULL);
 }
 
-int __must_check
-vdo_make(unsigned int instance, struct device_config *config, char **reason, struct vdo **vdo_ptr);
+int __must_check vdo_make(unsigned int instance, struct device_config *config,
+			  char **reason, struct vdo **vdo_ptr);
 
 void vdo_destroy(struct vdo *vdo);
 
@@ -341,9 +340,8 @@ void vdo_set_state(struct vdo *vdo, enum vdo_state state);
 
 void vdo_save_components(struct vdo *vdo, struct vdo_completion *parent);
 
-int vdo_register_read_only_listener(struct vdo *vdo,
-				    void *listener,
-				    vdo_read_only_notification *notification,
+int vdo_register_read_only_listener(struct vdo *vdo, void *listener,
+				    vdo_read_only_notification_fn notification,
 				    thread_id_t thread_id);
 
 int vdo_enable_read_only_entry(struct vdo *vdo);
@@ -364,16 +362,13 @@ void vdo_enter_recovery_mode(struct vdo *vdo);
 
 void vdo_assert_on_admin_thread(const struct vdo *vdo, const char *name);
 
-void vdo_assert_on_logical_zone_thread(const struct vdo *vdo,
-				       zone_count_t logical_zone,
+void vdo_assert_on_logical_zone_thread(const struct vdo *vdo, zone_count_t logical_zone,
 				       const char *name);
 
-void vdo_assert_on_physical_zone_thread(const struct vdo *vdo,
-					zone_count_t physical_zone,
+void vdo_assert_on_physical_zone_thread(const struct vdo *vdo, zone_count_t physical_zone,
 					const char *name);
 
-int __must_check vdo_get_physical_zone(const struct vdo *vdo,
-				       physical_block_number_t pbn,
+int __must_check vdo_get_physical_zone(const struct vdo *vdo, physical_block_number_t pbn,
 				       struct physical_zone **zone_ptr);
 
 void vdo_dump_status(const struct vdo *vdo);

@@ -111,7 +111,7 @@ static const char *get_error_info(int errnum, const struct error_info **info_ptr
 
 	for (block = registered_errors.blocks;
 	     block < registered_errors.blocks + registered_errors.count;
-	     ++block) {
+	     block++) {
 		if ((errnum >= block->base) && (errnum < block->last)) {
 			*info_ptr = block->infos + (errnum - block->base);
 			return block->name;
@@ -159,18 +159,13 @@ const char *uds_string_error(int errnum, char *buf, size_t buflen)
 
 	block_name = get_error_info(errnum, &info);
 	if (block_name != NULL) {
-		if (info != NULL)
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "%s: %s",
-						      block_name,
-						      info->message);
-		else
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "Unknown %s %d",
-						      block_name,
-						      errnum);
+		if (info != NULL) {
+			buffer = uds_append_to_buffer(buffer, buf_end, "%s: %s",
+						      block_name, info->message);
+		} else {
+			buffer = uds_append_to_buffer(buffer, buf_end, "Unknown %s %d",
+						      block_name, errnum);
+		}
 	} else if (info != NULL) {
 		buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->message);
 	} else {
@@ -181,6 +176,7 @@ const char *uds_string_error(int errnum, char *buf, size_t buflen)
 		else
 			buffer += strlen(tmp);
 	}
+
 	return buf;
 }
 
@@ -197,14 +193,12 @@ const char *uds_string_error_name(int errnum, char *buf, size_t buflen)
 
 	block_name = get_error_info(errnum, &info);
 	if (block_name != NULL) {
-		if (info != NULL)
+		if (info != NULL) {
 			buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->name);
-		else
-			buffer = uds_append_to_buffer(buffer,
-						      buf_end,
-						      "%s %d",
-						      block_name,
-						      errnum);
+		} else {
+			buffer = uds_append_to_buffer(buffer, buf_end, "%s %d",
+						      block_name, errnum);
+		}
 	} else if (info != NULL) {
 		buffer = uds_append_to_buffer(buffer, buf_end, "%s", info->name);
 	} else {
@@ -216,6 +210,7 @@ const char *uds_string_error_name(int errnum, char *buf, size_t buflen)
 		else
 			buffer += strlen(tmp);
 	}
+
 	return buf;
 }
 
@@ -233,9 +228,10 @@ int uds_map_to_system_error(int error)
 	if (likely(error <= 0))
 		return error;
 
-	if (error < 1024)
+	if (error < 1024) {
 		/* This is probably an errno from userspace. */
 		return -error;
+	}
 
 	/* Internal UDS errors */
 	switch (error) {
@@ -259,10 +255,11 @@ int uds_map_to_system_error(int error)
 	default:
 		/* Translate an unexpected error into something generic. */
 		uds_log_info("%s: mapping status code %d (%s: %s) to -EIO",
-			     __func__,
-			     error,
-			     uds_string_error_name(error, error_name, sizeof(error_name)),
-			     uds_string_error(error, error_message, sizeof(error_message)));
+			     __func__, error,
+			     uds_string_error_name(error, error_name,
+						   sizeof(error_name)),
+			     uds_string_error(error, error_message,
+					      sizeof(error_message)));
 		return -EIO;
 	}
 }
@@ -276,10 +273,8 @@ int uds_map_to_system_error(int error)
  * @infos: a pointer to the error info array for the block
  * @info_size: the size of the error info array
  */
-int uds_register_error_block(const char *block_name,
-			     int first_error,
-			     int next_free_error,
-			     const struct error_info *infos,
+int uds_register_error_block(const char *block_name, int first_error,
+			     int next_free_error, const struct error_info *infos,
 			     size_t info_size)
 {
 	int result;
@@ -296,13 +291,14 @@ int uds_register_error_block(const char *block_name,
 	if (result != UDS_SUCCESS)
 		return result;
 
-	if (registered_errors.count == registered_errors.allocated)
+	if (registered_errors.count == registered_errors.allocated) {
 		/* This should never happen. */
 		return UDS_OVERFLOW;
+	}
 
 	for (block = registered_errors.blocks;
 	     block < registered_errors.blocks + registered_errors.count;
-	     ++block) {
+	     block++) {
 		if (strcmp(block_name, block->name) == 0)
 			return UDS_DUPLICATE_NAME;
 

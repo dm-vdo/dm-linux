@@ -126,8 +126,7 @@ void vdo_reset_priority_table(struct priority_table *table)
  * @entry: The list_head embedded in the entry to store in the table (the caller must have
  *         initialized it).
  */
-void vdo_priority_table_enqueue(struct priority_table *table,
-				unsigned int priority,
+void vdo_priority_table_enqueue(struct priority_table *table, unsigned int priority,
 				struct list_head *entry)
 {
 	ASSERT_LOG_ONLY((priority <= table->max_priority),
@@ -161,9 +160,10 @@ struct list_head *vdo_priority_table_dequeue(struct priority_table *table)
 	struct list_head *entry;
 	int top_priority;
 
-	if (table->search_vector == 0)
+	if (table->search_vector == 0) {
 		/* All buckets are empty. */
 		return NULL;
+	}
 
 	/*
 	 * Find the highest priority non-empty bucket by finding the highest-order non-zero bit in

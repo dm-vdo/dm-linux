@@ -18,8 +18,7 @@
 
 struct index_layout;
 
-int __must_check uds_make_index_layout(struct configuration *config,
-				       bool new_layout,
+int __must_check uds_make_index_layout(struct configuration *config, bool new_layout,
 				       struct index_layout **layout_ptr);
 
 void uds_free_index_layout(struct index_layout *layout);
@@ -27,16 +26,17 @@ void uds_free_index_layout(struct index_layout *layout);
 int __must_check uds_replace_index_layout_storage(struct index_layout *layout,
 						  struct block_device *bdev);
 
-int __must_check uds_load_index_state(struct index_layout *layout, struct uds_index *index);
+int __must_check uds_load_index_state(struct index_layout *layout,
+				      struct uds_index *index);
 
-int __must_check uds_save_index_state(struct index_layout *layout, struct uds_index *index);
+int __must_check uds_save_index_state(struct index_layout *layout,
+				      struct uds_index *index);
 
 int __must_check uds_discard_open_chapter(struct index_layout *layout);
 
 u64 __must_check uds_get_volume_nonce(struct index_layout *layout);
 
-int __must_check uds_open_volume_bufio(struct index_layout *layout,
-				       size_t block_size,
+int __must_check uds_open_volume_bufio(struct index_layout *layout, size_t block_size,
 				       unsigned int reserved_buffers,
 				       struct dm_bufio_client **client_ptr);
 

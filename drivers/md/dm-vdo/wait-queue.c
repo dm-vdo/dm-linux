@@ -81,7 +81,8 @@ void vdo_transfer_all_waiters(struct wait_queue *from_queue, struct wait_queue *
  * function on each of them in turn. The queue is copied and emptied before invoking any callbacks,
  * and only the waiters that were in the queue at the start of the call will be notified.
  */
-void vdo_notify_all_waiters(struct wait_queue *queue, waiter_callback *callback, void *context)
+void vdo_notify_all_waiters(struct wait_queue *queue, waiter_callback_fn callback,
+			    void *context)
 {
 	/*
 	 * Copy and empty the queue first, avoiding the possibility of an infinite loop if entries
@@ -93,9 +94,8 @@ void vdo_notify_all_waiters(struct wait_queue *queue, waiter_callback *callback,
 	vdo_transfer_all_waiters(queue, &waiters);
 
 	/* Drain the copied queue, invoking the callback on every entry. */
-	while (vdo_notify_next_waiter(&waiters, callback, context))
-		/* All the work is done by the loop condition. */
-		;
+	while (vdo_has_waiters(&waiters))
+		vdo_notify_next_waiter(&waiters, callback, context);
 }
 
 /**
@@ -108,9 +108,10 @@ struct waiter *vdo_get_first_waiter(const struct wait_queue *queue)
 {
 	struct waiter *last_waiter = queue->last_waiter;
 
-	if (last_waiter == NULL)
+	if (last_waiter == NULL) {
 		/* There are no waiters, so we're done. */
 		return NULL;
+	}
 
 	/* The queue is circular, so the last entry links to the head of the queue. */
 	return last_waiter->next_waiter;
@@ -124,10 +125,8 @@ struct waiter *vdo_get_first_waiter(const struct wait_queue *queue)
  * @match_context: Contextual info for the match method.
  * @matched_queue: A wait_queue to store matches.
  */
-void vdo_dequeue_matching_waiters(struct wait_queue *queue,
-				  waiter_match *match_method,
-				  void *match_context,
-				  struct wait_queue *matched_queue)
+void vdo_dequeue_matching_waiters(struct wait_queue *queue, waiter_match_fn match_method,
+				  void *match_context, struct wait_queue *matched_queue)
 {
 	struct wait_queue matched_waiters, iteration_queue;
 
@@ -139,9 +138,7 @@ void vdo_dequeue_matching_waiters(struct wait_queue *queue,
 		struct waiter *waiter = vdo_dequeue_next_waiter(&iteration_queue);
 
 		vdo_enqueue_waiter((match_method(waiter, match_context) ?
-				    &matched_waiters :
-				    queue),
-				   waiter);
+				    &matched_waiters : queue), waiter);
 	}
 
 	vdo_transfer_all_waiters(&matched_waiters, matched_queue);
@@ -164,19 +161,21 @@ struct waiter *vdo_dequeue_next_waiter(struct wait_queue *queue)
 	if (first_waiter == NULL)
 		return NULL;
 
-	if (first_waiter == last_waiter)
+	if (first_waiter == last_waiter) {
 		/* The queue has a single entry, so just empty it out by nulling the tail. */
 		queue->last_waiter = NULL;
-	else
+	} else {
 		/*
 		 * The queue has more than one entry, so splice the first waiter out of the
 		 * circular queue.
 		 */
 		last_waiter->next_waiter = first_waiter->next_waiter;
+	}
 
 	/* The waiter is no longer in a wait queue. */
 	first_waiter->next_waiter = NULL;
 	queue->queue_length -= 1;
+
 	return first_waiter;
 }
 
@@ -192,7 +191,8 @@ struct waiter *vdo_dequeue_next_waiter(struct wait_queue *queue)
  *
  * Return: true if there was a waiter in the queue.
  */
-bool vdo_notify_next_waiter(struct wait_queue *queue, waiter_callback *callback, void *context)
+bool vdo_notify_next_waiter(struct wait_queue *queue, waiter_callback_fn callback,
+			    void *context)
 {
 	struct waiter *waiter = vdo_dequeue_next_waiter(queue);
 
@@ -202,6 +202,7 @@ bool vdo_notify_next_waiter(struct wait_queue *queue, waiter_callback *callback,
 	if (callback == NULL)
 		callback = waiter->callback;
 	(*callback)(waiter, context);
+
 	return true;
 }
 
@@ -212,12 +213,13 @@ bool vdo_notify_next_waiter(struct wait_queue *queue, waiter_callback *callback,
  *
  * Return: The next waiter, or NULL.
  */
-const struct waiter *
-vdo_get_next_waiter(const struct wait_queue *queue, const struct waiter *waiter)
+const struct waiter *vdo_get_next_waiter(const struct wait_queue *queue,
+					 const struct waiter *waiter)
 {
 	struct waiter *first_waiter = vdo_get_first_waiter(queue);
 
 	if (waiter == NULL)
 		return first_waiter;
+
 	return ((waiter->next_waiter != first_waiter) ? waiter->next_waiter : NULL);
 }

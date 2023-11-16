@@ -74,10 +74,8 @@ static int thread_starter(void *arg)
 	return 0;
 }
 
-int uds_create_thread(void (*thread_function)(void *),
-		      void *thread_data,
-		      const char *name,
-		      struct thread **new_thread)
+int uds_create_thread(void (*thread_function)(void *), void *thread_data,
+		      const char *name, struct thread **new_thread)
 {
 	char *name_colon = strchr(name, ':');
 	char *my_name_colon = strchr(current->comm, ':');
@@ -108,15 +106,13 @@ int uds_create_thread(void (*thread_function)(void *),
 	 *
 	 * Otherwise just use the name supplied. This should be a rare occurrence.
 	 */
-	if ((name_colon == NULL) && (my_name_colon != NULL))
-		task = kthread_run(thread_starter,
-				   thread,
-				   "%.*s:%s",
-				   (int) (my_name_colon - current->comm),
-				   current->comm,
+	if ((name_colon == NULL) && (my_name_colon != NULL)) {
+		task = kthread_run(thread_starter, thread, "%.*s:%s",
+				   (int) (my_name_colon - current->comm), current->comm,
 				   name);
-	else
+	} else {
 		task = kthread_run(thread_starter, thread, "%s", name);
+	}
 
 	if (IS_ERR(task)) {
 		uds_free(thread);
@@ -160,6 +156,7 @@ int uds_destroy_barrier(struct barrier *barrier)
 	result = uds_destroy_semaphore(&barrier->mutex);
 	if (result != UDS_SUCCESS)
 		return result;
+
 	return uds_destroy_semaphore(&barrier->wait);
 }
 
