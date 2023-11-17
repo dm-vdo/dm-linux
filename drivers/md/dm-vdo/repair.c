@@ -1710,7 +1710,8 @@ void vdo_repair(struct vdo_completion *parent)
 	}
 
 	result = uds_allocate_extended(struct repair_completion, page_count,
-				       struct vdo_page_completion, __func__, &repair);
+				       struct vdo_page_completion, __func__,
+				       &repair);
 	if (result != VDO_SUCCESS) {
 		vdo_fail_completion(parent, result);
 		return;
@@ -1737,8 +1738,9 @@ void vdo_repair(struct vdo_completion *parent)
 					     MAX_BLOCKS_PER_VIO);
 
 		result = allocate_vio_components(vdo, VIO_TYPE_RECOVERY_JOURNAL,
-						 VIO_PRIORITY_METADATA, repair, blocks,
-						 ptr, &repair->vios[repair->vio_count]);
+						 VIO_PRIORITY_METADATA,
+						 repair, blocks, ptr,
+						 &repair->vios[repair->vio_count]);
 		if (abort_on_error(result, repair))
 			return;
 
