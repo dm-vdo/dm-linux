@@ -9,15 +9,15 @@ on:
 concurrency:
   group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
   cancel-in-progress: true
-  
+
 jobs:
-  Verifying:  
-    if: github.event.pull_request.draft == false  
+  Verifying:
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - name: Start verification
         run: echo Verification Start
-      
+
       # Run assignment action 
       - name: Assign reviewers and assignees
         uses: dm-vdo/vdo-auto-assign@main
@@ -36,9 +36,9 @@ jobs:
         with:
           token: ${{secrets.VDODEVEL}}
           label: untested
-          type: add     
-                    
-  Private-Testing:
+          type: add
+
+  Testing:
     if: github.event.pull_request.draft == false    
     runs-on: [self-hosted, trusted]
     needs: [Verifying]
@@ -46,27 +46,32 @@ jobs:
     - uses: actions/checkout@v2
       with:
         ref: ${{ github.event.pull_request.head.sha }}
-    - name: Start Private testing
-      run: echo Private Testing Start
-      
-    - name: Add testing running label
+        path: dm-linux
+
+    - uses: actions/checkout@v2
+      with:
+        repo: ${{ github.event.repository.owner.login }}/vdo-devel
+        path: vdo-devel
+
+    - name: Add private testing running label
       uses: buildsville/add-remove-label@v2.0.0
       with:
         token: ${{secrets.GITHUB_TOKEN}}
         label: private testing running
         type: add
 
-      # TODO: Replace echo with real tests
-    - name: Run-trusted-Tests
-      run: echo 'make jenkins'
-      
+    - name: Start private testing
+      run: |
+        cd ${{GITHUB_WORKSPACE}}/vdo-devel/src/
+        make DMLINUX_SOURCE_DIR=${{GITHUB_WORKSPACE}}/dm-linux dmlinux-jenkins
+
     - name: Copy log file to /permatbit/user/bunsen/artifacts
       if: failure()
       run: |
         REPO=${{ github.repository }}
         REPO=${REPO//\//-}
-        cp -a logs /permabit/user/bunsen/artifacts/logs.`date +'%Y%m%d%H%M'`.$REPO.${{ github.event.number }}
-    
+        cp -a ${{GITHUB_WORKSPACE}}/vdo-devel/logs /permabit/user/bunsen/artifacts/logs.`date +'%Y%m%d%H%M'`.$REPO.${{ github.event.number }}
+
     - name: Remove private testing running label
       if: always()
       uses: buildsville/add-remove-label@v2.0.0
@@ -82,7 +87,7 @@ jobs:
         token: ${{secrets.GITHUB_TOKEN}}
         label: private testing failed
         type: add
-        
+
     - name: Add private testing success
       if: success()
       uses: buildsville/add-remove-label@v2.0.0
