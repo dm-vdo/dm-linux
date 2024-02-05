@@ -62,15 +62,15 @@ jobs:
 
     - name: Start private testing
       run: |
-        cd ${{GITHUB_WORKSPACE}}/vdo-devel/src/
-        make DMLINUX_SOURCE_DIR=${{GITHUB_WORKSPACE}}/dm-linux dmlinux-jenkins
+        cd ${{ github.workspace }}/vdo-devel/src/
+        make DMLINUX_SOURCE_DIR=${{ github.workspace }}/dm-linux dmlinux-jenkins
 
     - name: Copy log file to /permatbit/user/bunsen/artifacts
       if: failure()
       run: |
         REPO=${{ github.repository }}
         REPO=${REPO//\//-}
-        cp -a ${{GITHUB_WORKSPACE}}/vdo-devel/logs /permabit/user/bunsen/artifacts/logs.`date +'%Y%m%d%H%M'`.$REPO.${{ github.event.number }}
+        cp -a ${{ github.workspace }}/vdo-devel/logs /permabit/user/bunsen/artifacts/logs.`date +'%Y%m%d%H%M'`.$REPO.${{ github.event.number }}
 
     - name: Remove private testing running label
       if: always()
