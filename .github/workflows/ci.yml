@@ -50,7 +50,7 @@ jobs:
 
     - uses: actions/checkout@v2
       with:
-        repo: ${{ github.event.repository.owner.login }}/vdo-devel
+        repository: ${{ github.event.repository.owner.login }}/vdo-devel
         path: vdo-devel
 
     - name: Add private testing running label
