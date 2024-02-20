@@ -3,10 +3,13 @@
  * Copyright 2023 Red Hat
  */
 
-#ifndef UDS_H
-#define UDS_H
+#ifndef INDEXER_H
+#define INDEXER_H
 
+#include <linux/mutex.h>
+#include <linux/sched.h>
 #include <linux/types.h>
+#include <linux/wait.h>
 
 #include "funnel-queue.h"
 
@@ -326,4 +329,25 @@ int __must_check uds_get_index_session_stats(struct uds_index_session *session,
 /* This function will fail if any required field of the request is not set. */
 int __must_check uds_launch_request(struct uds_request *request);
 
-#endif /* UDS_H */
+struct cond_var {
+	wait_queue_head_t wait_queue;
+};
+
+static inline void uds_init_cond(struct cond_var *cv)
+{
+	init_waitqueue_head(&cv->wait_queue);
+}
+
+static inline void uds_signal_cond(struct cond_var *cv)
+{
+	wake_up(&cv->wait_queue);
+}
+
+static inline void uds_broadcast_cond(struct cond_var *cv)
+{
+	wake_up_all(&cv->wait_queue);
+}
+
+void uds_wait_cond(struct cond_var *cv, struct mutex *mutex);
+
+#endif /* INDEXER_H */
