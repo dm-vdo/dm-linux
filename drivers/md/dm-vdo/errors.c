@@ -58,13 +58,9 @@ static const struct error_info error_list[] = {
 	{ "UDS_DUPLICATE_NAME", "Attempt to enter the same name into a delta index twice" },
 	{ "UDS_ASSERTION_FAILED", "Assertion failed" },
 	{ "UDS_QUEUED", "Request queued" },
-	{ "UDS_BUFFER_ERROR", "Buffer error" },
-	{ "UDS_NO_DIRECTORY", "Expected directory is missing" },
 	{ "UDS_ALREADY_REGISTERED", "Error range already registered" },
 	{ "UDS_OUT_OF_RANGE", "Cannot access data outside specified limits" },
-	{ "UDS_EMODULE_LOAD", "Could not load modules" },
 	{ "UDS_DISABLED", "UDS library context is disabled" },
-	{ "UDS_UNKNOWN_ERROR", "Unknown error" },
 	{ "UDS_UNSUPPORTED_VERSION", "Unsupported version" },
 	{ "UDS_CORRUPT_DATA", "Some index structure is corrupt" },
 	{ "UDS_NO_INDEX", "No index found" },
@@ -285,8 +281,9 @@ int uds_register_error_block(const char *block_name, int first_error,
 		.infos = infos,
 	};
 
-	result = ASSERT(first_error < next_free_error, "well-defined error block range");
-	if (result != UDS_SUCCESS)
+	result = VDO_ASSERT(first_error < next_free_error,
+			    "well-defined error block range");
+	if (result != VDO_SUCCESS)
 		return result;
 
 	if (registered_errors.count == registered_errors.allocated) {

@@ -199,8 +199,8 @@ static void update_session_stats(struct uds_request *request)
 		break;
 
 	default:
-		request->status = ASSERT(false, "unknown request type: %d",
-					 request->type);
+		request->status = VDO_ASSERT(false, "unknown request type: %d",
+					     request->type);
 	}
 }
 
@@ -222,7 +222,7 @@ static int __must_check make_empty_index_session(struct uds_index_session **inde
 	struct uds_index_session *session;
 
 	result = vdo_allocate(1, struct uds_index_session, __func__, &session);
-	if (result != UDS_SUCCESS)
+	if (result != VDO_SUCCESS)
 		return result;
 
 	mutex_init(&session->request_mutex);
@@ -402,8 +402,8 @@ static void suspend_rebuild(struct uds_index_session *session)
 	case INDEX_FREEING:
 	default:
 		/* These cases should not happen. */
-		ASSERT_LOG_ONLY(false, "Bad load context state %u",
-				session->load_context.status);
+		VDO_ASSERT_LOG_ONLY(false, "Bad load context state %u",
+				    session->load_context.status);
 		break;
 	}
 	mutex_unlock(&session->load_context.mutex);
@@ -531,8 +531,8 @@ int uds_resume_index_session(struct uds_index_session *session,
 		case INDEX_FREEING:
 		default:
 			/* These cases should not happen; do nothing. */
-			ASSERT_LOG_ONLY(false, "Bad load context state %u",
-					session->load_context.status);
+			VDO_ASSERT_LOG_ONLY(false, "Bad load context state %u",
+					    session->load_context.status);
 			break;
 		}
 		mutex_unlock(&session->load_context.mutex);
