@@ -37,6 +37,7 @@
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
 #include <asm/elf.h>
+#include <asm/exec.h>
 #include <asm/fpu.h>
 #include <asm/lbt.h>
 #include <asm/io.h>
@@ -84,6 +85,7 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 	regs->csr_euen = euen;
 	lose_fpu(0);
 	lose_lbt(0);
+	current->thread.fpu.fcsr = boot_cpu_data.fpu_csr0;
 
 	clear_thread_flag(TIF_LSX_CTX_LIVE);
 	clear_thread_flag(TIF_LASX_CTX_LIVE);

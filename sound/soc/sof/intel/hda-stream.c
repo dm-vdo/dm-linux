@@ -21,6 +21,7 @@
 #include <trace/events/sof_intel.h>
 #include "../ops.h"
 #include "../sof-audio.h"
+#include "../ipc4-priv.h"
 #include "hda.h"
 
 #define HDA_LTRP_GB_VALUE_US	95
@@ -38,7 +39,7 @@ static char *hda_hstream_dbg_get_stream_info_str(struct hdac_stream *hstream)
 	struct snd_soc_pcm_runtime *rtd;
 
 	if (hstream->substream)
-		rtd = asoc_substream_to_rtd(hstream->substream);
+		rtd = snd_soc_substream_to_rtd(hstream->substream);
 	else if (hstream->cstream)
 		rtd = hstream->cstream->private_data;
 	else
@@ -668,7 +669,7 @@ int hda_dsp_stream_hw_params(struct snd_sof_dev *sdev,
 			snd_sof_dsp_read(sdev, HDA_DSP_HDA_BAR,
 					 sd_offset +
 					 SOF_HDA_ADSP_REG_SD_FIFOSIZE);
-		hstream->fifo_size &= 0xffff;
+		hstream->fifo_size &= SOF_HDA_SD_FIFOSIZE_FIFOS_MASK;
 		hstream->fifo_size += 1;
 	} else {
 		hstream->fifo_size = 0;
@@ -936,6 +937,14 @@ int hda_dsp_stream_init(struct snd_sof_dev *sdev)
 
 	/* store total stream count (playback + capture) from GCAP */
 	sof_hda->stream_max = num_total;
+
+	/* store stream count from GCAP required for CHAIN_DMA */
+	if (sdev->pdata->ipc_type == SOF_IPC_TYPE_4) {
+		struct sof_ipc4_fw_data *ipc4_data = sdev->private;
+
+		ipc4_data->num_playback_streams = num_playback;
+		ipc4_data->num_capture_streams = num_capture;
+	}
 
 	return 0;
 }

@@ -36,6 +36,7 @@ struct ms_hyperv_info {
 	u32 nested_features;
 	u32 max_vp_index;
 	u32 max_lp_index;
+	u8 vtl;
 	union {
 		u32 isolation_config_a;
 		struct {
@@ -54,7 +55,6 @@ struct ms_hyperv_info {
 		};
 	};
 	u64 shared_gpa_boundary;
-	u8 vtl;
 };
 extern struct ms_hyperv_info ms_hyperv;
 extern bool hv_nested;
@@ -157,9 +157,11 @@ static inline void vmbus_signal_eom(struct hv_message *msg, u32 old_msg_type)
 		 * possibly deliver another msg from the
 		 * hypervisor
 		 */
-		hv_set_register(HV_REGISTER_EOM, 0);
+		hv_set_msr(HV_MSR_EOM, 0);
 	}
 }
+
+int hv_get_hypervisor_version(union hv_hypervisor_version_info *info);
 
 void hv_setup_vmbus_handler(void (*handler)(void));
 void hv_remove_vmbus_handler(void);
@@ -193,6 +195,7 @@ extern u64 (*hv_read_reference_counter)(void);
 
 int __init hv_common_init(void);
 void __init hv_common_free(void);
+void __init ms_hyperv_late_init(void);
 int hv_common_cpu_init(unsigned int cpu);
 int hv_common_cpu_die(unsigned int cpu);
 
@@ -290,6 +293,7 @@ void hv_setup_dma_ops(struct device *dev, bool coherent);
 static inline bool hv_is_hyperv_initialized(void) { return false; }
 static inline bool hv_is_hibernation_supported(void) { return false; }
 static inline void hyperv_cleanup(void) {}
+static inline void ms_hyperv_late_init(void) {}
 static inline bool hv_is_isolation_supported(void) { return false; }
 static inline enum hv_isolation_type hv_get_isolation_type(void)
 {

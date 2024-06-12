@@ -283,7 +283,8 @@ static void swiotlb_init_io_tlb_pool(struct io_tlb_pool *mem, phys_addr_t start,
 	}
 
 	for (i = 0; i < mem->nslabs; i++) {
-		mem->slots[i].list = IO_TLB_SEGSIZE - io_tlb_offset(i);
+		mem->slots[i].list = min(IO_TLB_SEGSIZE - io_tlb_offset(i),
+					 mem->nslabs - i);
 		mem->slots[i].orig_addr = INVALID_PHYS_ADDR;
 		mem->slots[i].alloc_size = 0;
 	}
@@ -399,14 +400,13 @@ void __init swiotlb_init_remap(bool addressing_limit, unsigned int flags,
 	}
 
 	mem->areas = memblock_alloc(array_size(sizeof(struct io_tlb_area),
-		default_nareas), SMP_CACHE_BYTES);
+		nareas), SMP_CACHE_BYTES);
 	if (!mem->areas) {
 		pr_warn("%s: Failed to allocate mem->areas.\n", __func__);
 		return;
 	}
 
-	swiotlb_init_io_tlb_pool(mem, __pa(tlb), nslabs, false,
-				 default_nareas);
+	swiotlb_init_io_tlb_pool(mem, __pa(tlb), nslabs, false, nareas);
 	add_mem_pool(&io_tlb_default_mem, mem);
 
 	if (flags & SWIOTLB_VERBOSE)
@@ -559,29 +559,40 @@ void __init swiotlb_exit(void)
  * alloc_dma_pages() - allocate pages to be used for DMA
  * @gfp:	GFP flags for the allocation.
  * @bytes:	Size of the buffer.
+ * @phys_limit:	Maximum allowed physical address of the buffer.
  *
  * Allocate pages from the buddy allocator. If successful, make the allocated
  * pages decrypted that they can be used for DMA.
  *
- * Return: Decrypted pages, or %NULL on failure.
+ * Return: Decrypted pages, %NULL on allocation failure, or ERR_PTR(-EAGAIN)
+ * if the allocated physical address was above @phys_limit.
  */
-static struct page *alloc_dma_pages(gfp_t gfp, size_t bytes)
+static struct page *alloc_dma_pages(gfp_t gfp, size_t bytes, u64 phys_limit)
 {
 	unsigned int order = get_order(bytes);
 	struct page *page;
+	phys_addr_t paddr;
 	void *vaddr;
 
 	page = alloc_pages(gfp, order);
 	if (!page)
 		return NULL;
 
-	vaddr = page_address(page);
+	paddr = page_to_phys(page);
+	if (paddr + bytes - 1 > phys_limit) {
+		__free_pages(page, order);
+		return ERR_PTR(-EAGAIN);
+	}
+
+	vaddr = phys_to_virt(paddr);
 	if (set_memory_decrypted((unsigned long)vaddr, PFN_UP(bytes)))
 		goto error;
 	return page;
 
 error:
-	__free_pages(page, order);
+	/* Intentional leak if pages cannot be encrypted again. */
+	if (!set_memory_encrypted((unsigned long)vaddr, PFN_UP(bytes)))
+		__free_pages(page, order);
 	return NULL;
 }
 
@@ -619,11 +630,7 @@ static struct page *swiotlb_alloc_tlb(struct device *dev, size_t bytes,
 	else if (phys_limit <= DMA_BIT_MASK(32))
 		gfp |= __GFP_DMA32;
 
-	while ((page = alloc_dma_pages(gfp, bytes)) &&
-	       page_to_phys(page) + bytes - 1 > phys_limit) {
-		/* allocated, but too high */
-		__free_pages(page, get_order(bytes));
-
+	while (IS_ERR(page = alloc_dma_pages(gfp, bytes, phys_limit))) {
 		if (IS_ENABLED(CONFIG_ZONE_DMA32) &&
 		    phys_limit < DMA_BIT_MASK(64) &&
 		    !(gfp & (__GFP_DMA32 | __GFP_DMA)))
@@ -679,6 +686,11 @@ static struct io_tlb_pool *swiotlb_alloc_pool(struct device *dev,
 	size_t pool_size;
 	size_t tlb_size;
 
+	if (nslabs > SLABS_PER_PAGE << MAX_PAGE_ORDER) {
+		nslabs = SLABS_PER_PAGE << MAX_PAGE_ORDER;
+		nareas = limit_nareas(nareas, nslabs);
+	}
+
 	pool_size = sizeof(*pool) + array_size(sizeof(*pool->areas), nareas);
 	pool = kzalloc(pool_size, gfp);
 	if (!pool)
@@ -729,9 +741,6 @@ static void swiotlb_dyn_alloc(struct work_struct *work)
 	}
 
 	add_mem_pool(mem, pool);
-
-	/* Pairs with smp_rmb() in is_swiotlb_buffer(). */
-	smp_wmb();
 }
 
 /**
@@ -947,8 +956,30 @@ static void dec_used(struct io_tlb_mem *mem, unsigned int nslots)
 }
 #endif /* CONFIG_DEBUG_FS */
 
+#ifdef CONFIG_SWIOTLB_DYNAMIC
+#ifdef CONFIG_DEBUG_FS
+static void inc_transient_used(struct io_tlb_mem *mem, unsigned int nslots)
+{
+	atomic_long_add(nslots, &mem->transient_nslabs);
+}
+
+static void dec_transient_used(struct io_tlb_mem *mem, unsigned int nslots)
+{
+	atomic_long_sub(nslots, &mem->transient_nslabs);
+}
+
+#else /* !CONFIG_DEBUG_FS */
+static void inc_transient_used(struct io_tlb_mem *mem, unsigned int nslots)
+{
+}
+static void dec_transient_used(struct io_tlb_mem *mem, unsigned int nslots)
+{
+}
+#endif /* CONFIG_DEBUG_FS */
+#endif /* CONFIG_SWIOTLB_DYNAMIC */
+
 /**
- * swiotlb_area_find_slots() - search for slots in one IO TLB memory area
+ * swiotlb_search_pool_area() - search one memory area in one pool
  * @dev:	Device which maps the buffer.
  * @pool:	Memory pool to be searched.
  * @area_index:	Index of the IO TLB memory area to be searched.
@@ -963,7 +994,7 @@ static void dec_used(struct io_tlb_mem *mem, unsigned int nslots)
  *
  * Return: Index of the first allocated slot, or -1 on error.
  */
-static int swiotlb_area_find_slots(struct device *dev, struct io_tlb_pool *pool,
+static int swiotlb_search_pool_area(struct device *dev, struct io_tlb_pool *pool,
 		int area_index, phys_addr_t orig_addr, size_t alloc_size,
 		unsigned int alloc_align_mask)
 {
@@ -972,8 +1003,7 @@ static int swiotlb_area_find_slots(struct device *dev, struct io_tlb_pool *pool,
 	dma_addr_t tbl_dma_addr =
 		phys_to_dma_unencrypted(dev, pool->start) & boundary_mask;
 	unsigned long max_slots = get_max_slots(boundary_mask);
-	unsigned int iotlb_align_mask =
-		dma_get_min_align_mask(dev) | alloc_align_mask;
+	unsigned int iotlb_align_mask = dma_get_min_align_mask(dev);
 	unsigned int nslots = nr_slots(alloc_size), stride;
 	unsigned int offset = swiotlb_align_offset(dev, orig_addr);
 	unsigned int index, slots_checked, count = 0, i;
@@ -985,18 +1015,29 @@ static int swiotlb_area_find_slots(struct device *dev, struct io_tlb_pool *pool,
 	BUG_ON(area_index >= pool->nareas);
 
 	/*
-	 * For allocations of PAGE_SIZE or larger only look for page aligned
-	 * allocations.
+	 * Historically, swiotlb allocations >= PAGE_SIZE were guaranteed to be
+	 * page-aligned in the absence of any other alignment requirements.
+	 * 'alloc_align_mask' was later introduced to specify the alignment
+	 * explicitly, however this is passed as zero for streaming mappings
+	 * and so we preserve the old behaviour there in case any drivers are
+	 * relying on it.
 	 */
-	if (alloc_size >= PAGE_SIZE)
-		iotlb_align_mask |= ~PAGE_MASK;
-	iotlb_align_mask &= ~(IO_TLB_SIZE - 1);
+	if (!alloc_align_mask && !iotlb_align_mask && alloc_size >= PAGE_SIZE)
+		alloc_align_mask = PAGE_SIZE - 1;
+
+	/*
+	 * Ensure that the allocation is at least slot-aligned and update
+	 * 'iotlb_align_mask' to ignore bits that will be preserved when
+	 * offsetting into the allocation.
+	 */
+	alloc_align_mask |= (IO_TLB_SIZE - 1);
+	iotlb_align_mask &= ~alloc_align_mask;
 
 	/*
 	 * For mappings with an alignment requirement don't bother looping to
 	 * unaligned slots once we found an aligned one.
 	 */
-	stride = (iotlb_align_mask >> IO_TLB_SHIFT) + 1;
+	stride = get_max_slots(max(alloc_align_mask, iotlb_align_mask));
 
 	spin_lock_irqsave(&area->lock, flags);
 	if (unlikely(nslots > pool->area_nslabs - area->used))
@@ -1006,11 +1047,14 @@ static int swiotlb_area_find_slots(struct device *dev, struct io_tlb_pool *pool,
 	index = area->index;
 
 	for (slots_checked = 0; slots_checked < pool->area_nslabs; ) {
-		slot_index = slot_base + index;
+		phys_addr_t tlb_addr;
 
-		if (orig_addr &&
-		    (slot_addr(tbl_dma_addr, slot_index) &
-		     iotlb_align_mask) != (orig_addr & iotlb_align_mask)) {
+		slot_index = slot_base + index;
+		tlb_addr = slot_addr(tbl_dma_addr, slot_index);
+
+		if ((tlb_addr & alloc_align_mask) ||
+		    (orig_addr && (tlb_addr & iotlb_align_mask) !=
+				  (orig_addr & iotlb_align_mask))) {
 			index = wrap_area_index(pool, index + 1);
 			slots_checked++;
 			continue;
@@ -1057,40 +1101,49 @@ found:
 	return slot_index;
 }
 
+#ifdef CONFIG_SWIOTLB_DYNAMIC
+
 /**
- * swiotlb_pool_find_slots() - search for slots in one memory pool
+ * swiotlb_search_area() - search one memory area in all pools
  * @dev:	Device which maps the buffer.
- * @pool:	Memory pool to be searched.
+ * @start_cpu:	Start CPU number.
+ * @cpu_offset:	Offset from @start_cpu.
  * @orig_addr:	Original (non-bounced) IO buffer address.
  * @alloc_size: Total requested size of the bounce buffer,
  *		including initial alignment padding.
  * @alloc_align_mask:	Required alignment of the allocated buffer.
+ * @retpool:	Used memory pool, updated on return.
  *
- * Search through one memory pool to find a sequence of slots that match the
+ * Search one memory area in all pools for a sequence of slots that match the
  * allocation constraints.
  *
  * Return: Index of the first allocated slot, or -1 on error.
  */
-static int swiotlb_pool_find_slots(struct device *dev, struct io_tlb_pool *pool,
-		phys_addr_t orig_addr, size_t alloc_size,
-		unsigned int alloc_align_mask)
+static int swiotlb_search_area(struct device *dev, int start_cpu,
+		int cpu_offset, phys_addr_t orig_addr, size_t alloc_size,
+		unsigned int alloc_align_mask, struct io_tlb_pool **retpool)
 {
-	int start = raw_smp_processor_id() & (pool->nareas - 1);
-	int i = start, index;
+	struct io_tlb_mem *mem = dev->dma_io_tlb_mem;
+	struct io_tlb_pool *pool;
+	int area_index;
+	int index = -1;
 
-	do {
-		index = swiotlb_area_find_slots(dev, pool, i, orig_addr,
-						alloc_size, alloc_align_mask);
-		if (index >= 0)
-			return index;
-		if (++i >= pool->nareas)
-			i = 0;
-	} while (i != start);
-
-	return -1;
+	rcu_read_lock();
+	list_for_each_entry_rcu(pool, &mem->pools, node) {
+		if (cpu_offset >= pool->nareas)
+			continue;
+		area_index = (start_cpu + cpu_offset) & (pool->nareas - 1);
+		index = swiotlb_search_pool_area(dev, pool, area_index,
+						 orig_addr, alloc_size,
+						 alloc_align_mask);
+		if (index >= 0) {
+			*retpool = pool;
+			break;
+		}
+	}
+	rcu_read_unlock();
+	return index;
 }
-
-#ifdef CONFIG_SWIOTLB_DYNAMIC
 
 /**
  * swiotlb_find_slots() - search for slots in the whole swiotlb
@@ -1115,18 +1168,20 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 	unsigned long nslabs;
 	unsigned long flags;
 	u64 phys_limit;
+	int cpu, i;
 	int index;
 
-	rcu_read_lock();
-	list_for_each_entry_rcu(pool, &mem->pools, node) {
-		index = swiotlb_pool_find_slots(dev, pool, orig_addr,
-						alloc_size, alloc_align_mask);
-		if (index >= 0) {
-			rcu_read_unlock();
+	if (alloc_size > IO_TLB_SEGSIZE * IO_TLB_SIZE)
+		return -1;
+
+	cpu = raw_smp_processor_id();
+	for (i = 0; i < default_nareas; ++i) {
+		index = swiotlb_search_area(dev, cpu, i, orig_addr, alloc_size,
+					    alloc_align_mask, &pool);
+		if (index >= 0)
 			goto found;
-		}
 	}
-	rcu_read_unlock();
+
 	if (!mem->can_grow)
 		return -1;
 
@@ -1139,8 +1194,8 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 	if (!pool)
 		return -1;
 
-	index = swiotlb_pool_find_slots(dev, pool, orig_addr,
-					alloc_size, alloc_align_mask);
+	index = swiotlb_search_pool_area(dev, pool, 0, orig_addr,
+					 alloc_size, alloc_align_mask);
 	if (index < 0) {
 		swiotlb_dyn_free(&pool->rcu);
 		return -1;
@@ -1150,11 +1205,29 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 	spin_lock_irqsave(&dev->dma_io_tlb_lock, flags);
 	list_add_rcu(&pool->node, &dev->dma_io_tlb_pools);
 	spin_unlock_irqrestore(&dev->dma_io_tlb_lock, flags);
+	inc_transient_used(mem, pool->nslabs);
 
 found:
-	dev->dma_uses_io_tlb = true;
-	/* Pairs with smp_rmb() in is_swiotlb_buffer() */
-	smp_wmb();
+	WRITE_ONCE(dev->dma_uses_io_tlb, true);
+
+	/*
+	 * The general barrier orders reads and writes against a presumed store
+	 * of the SWIOTLB buffer address by a device driver (to a driver private
+	 * data structure). It serves two purposes.
+	 *
+	 * First, the store to dev->dma_uses_io_tlb must be ordered before the
+	 * presumed store. This guarantees that the returned buffer address
+	 * cannot be passed to another CPU before updating dev->dma_uses_io_tlb.
+	 *
+	 * Second, the load from mem->pools must be ordered before the same
+	 * presumed store. This guarantees that the returned buffer address
+	 * cannot be observed by another CPU before an update of the RCU list
+	 * that was made by swiotlb_dyn_alloc() on a third CPU (cf. multicopy
+	 * atomicity).
+	 *
+	 * See also the comment in is_swiotlb_buffer().
+	 */
+	smp_mb();
 
 	*retpool = pool;
 	return index;
@@ -1166,9 +1239,21 @@ static int swiotlb_find_slots(struct device *dev, phys_addr_t orig_addr,
 		size_t alloc_size, unsigned int alloc_align_mask,
 		struct io_tlb_pool **retpool)
 {
-	*retpool = &dev->dma_io_tlb_mem->defpool;
-	return swiotlb_pool_find_slots(dev, *retpool,
-				       orig_addr, alloc_size, alloc_align_mask);
+	struct io_tlb_pool *pool;
+	int start, i;
+	int index;
+
+	*retpool = pool = &dev->dma_io_tlb_mem->defpool;
+	i = start = raw_smp_processor_id() & (pool->nareas - 1);
+	do {
+		index = swiotlb_search_pool_area(dev, pool, i, orig_addr,
+						 alloc_size, alloc_align_mask);
+		if (index >= 0)
+			return index;
+		if (++i >= pool->nareas)
+			i = 0;
+	} while (i != start);
+	return -1;
 }
 
 #endif /* CONFIG_SWIOTLB_DYNAMIC */
@@ -1283,11 +1368,13 @@ phys_addr_t swiotlb_tbl_map_single(struct device *dev, phys_addr_t orig_addr,
 		pool->slots[index + i].orig_addr = slot_addr(orig_addr, i);
 	tlb_addr = slot_addr(pool->start, index) + offset;
 	/*
-	 * When dir == DMA_FROM_DEVICE we could omit the copy from the orig
-	 * to the tlb buffer, if we knew for sure the device will
-	 * overwrite the entire current content. But we don't. Thus
-	 * unconditional bounce may prevent leaking swiotlb content (i.e.
-	 * kernel memory) to user-space.
+	 * When the device is writing memory, i.e. dir == DMA_FROM_DEVICE, copy
+	 * the original buffer to the TLB buffer before initiating DMA in order
+	 * to preserve the original's data if the device does a partial write,
+	 * i.e. if the device doesn't overwrite the entire buffer.  Preserving
+	 * the original data, even if it's garbage, is necessary to match
+	 * hardware behavior.  Use of swiotlb is supposed to be transparent,
+	 * i.e. swiotlb must not corrupt memory by clobbering unwritten bytes.
 	 */
 	swiotlb_bounce(dev, tlb_addr, mapping_size, DMA_TO_DEVICE);
 	return tlb_addr;
@@ -1364,6 +1451,7 @@ static bool swiotlb_del_transient(struct device *dev, phys_addr_t tlb_addr)
 
 	dec_used(dev->dma_io_tlb_mem, pool->nslabs);
 	swiotlb_del_pool(dev, pool);
+	dec_transient_used(dev->dma_io_tlb_mem, pool->nslabs);
 	return true;
 }
 
@@ -1506,6 +1594,23 @@ phys_addr_t default_swiotlb_limit(void)
 }
 
 #ifdef CONFIG_DEBUG_FS
+#ifdef CONFIG_SWIOTLB_DYNAMIC
+static unsigned long mem_transient_used(struct io_tlb_mem *mem)
+{
+	return atomic_long_read(&mem->transient_nslabs);
+}
+
+static int io_tlb_transient_used_get(void *data, u64 *val)
+{
+	struct io_tlb_mem *mem = data;
+
+	*val = mem_transient_used(mem);
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(fops_io_tlb_transient_used, io_tlb_transient_used_get,
+			 NULL, "%llu\n");
+#endif /* CONFIG_SWIOTLB_DYNAMIC */
 
 static int io_tlb_used_get(void *data, u64 *val)
 {
@@ -1554,6 +1659,11 @@ static void swiotlb_create_debugfs_files(struct io_tlb_mem *mem,
 			&fops_io_tlb_used);
 	debugfs_create_file("io_tlb_used_hiwater", 0600, mem->debugfs, mem,
 			&fops_io_tlb_hiwater);
+#ifdef CONFIG_SWIOTLB_DYNAMIC
+	atomic_long_set(&mem->transient_nslabs, 0);
+	debugfs_create_file("io_tlb_transient_nslabs", 0400, mem->debugfs,
+			    mem, &fops_io_tlb_transient_used);
+#endif
 }
 
 static int __init swiotlb_create_default_debugfs(void)
@@ -1580,16 +1690,24 @@ struct page *swiotlb_alloc(struct device *dev, size_t size)
 	struct io_tlb_mem *mem = dev->dma_io_tlb_mem;
 	struct io_tlb_pool *pool;
 	phys_addr_t tlb_addr;
+	unsigned int align;
 	int index;
 
 	if (!mem)
 		return NULL;
 
-	index = swiotlb_find_slots(dev, 0, size, 0, &pool);
+	align = (1 << (get_order(size) + PAGE_SHIFT)) - 1;
+	index = swiotlb_find_slots(dev, 0, size, align, &pool);
 	if (index == -1)
 		return NULL;
 
 	tlb_addr = slot_addr(pool->start, index);
+	if (unlikely(!PAGE_ALIGNED(tlb_addr))) {
+		dev_WARN_ONCE(dev, 1, "Cannot allocate pages from non page-aligned swiotlb addr 0x%pa.\n",
+			      &tlb_addr);
+		swiotlb_release_slots(dev, tlb_addr);
+		return NULL;
+	}
 
 	return pfn_to_page(PFN_DOWN(tlb_addr));
 }

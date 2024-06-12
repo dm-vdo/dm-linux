@@ -27,37 +27,6 @@
 #include "mount.h"
 
 /**
- * fill_mg_cmtime - Fill in the mtime and ctime and flag ctime as QUERIED
- * @stat: where to store the resulting values
- * @request_mask: STATX_* values requested
- * @inode: inode from which to grab the c/mtime
- *
- * Given @inode, grab the ctime and mtime out if it and store the result
- * in @stat. When fetching the value, flag it as queried so the next write
- * will use a fine-grained timestamp.
- */
-void fill_mg_cmtime(struct kstat *stat, u32 request_mask, struct inode *inode)
-{
-	atomic_long_t *pnsec = (atomic_long_t *)&inode->__i_ctime.tv_nsec;
-
-	/* If neither time was requested, then don't report them */
-	if (!(request_mask & (STATX_CTIME|STATX_MTIME))) {
-		stat->result_mask &= ~(STATX_CTIME|STATX_MTIME);
-		return;
-	}
-
-	stat->mtime = inode->i_mtime;
-	stat->ctime.tv_sec = inode->__i_ctime.tv_sec;
-	/*
-	 * Atomically set the QUERIED flag and fetch the new value with
-	 * the flag masked off.
-	 */
-	stat->ctime.tv_nsec = atomic_long_fetch_or(I_CTIME_QUERIED, pnsec) &
-					~I_CTIME_QUERIED;
-}
-EXPORT_SYMBOL(fill_mg_cmtime);
-
-/**
  * generic_fillattr - Fill in the basic attributes from the inode struct
  * @idmap:		idmap of the mount the inode was found from
  * @request_mask:	statx request_mask
@@ -72,7 +41,7 @@ EXPORT_SYMBOL(fill_mg_cmtime);
  * the vfsmount must be passed through @idmap. This function will then
  * take care to map the inode according to @idmap before filling in the
  * uid and gid filds. On non-idmapped mounts or if permission checking is to be
- * performed on the raw inode simply passs @nop_mnt_idmap.
+ * performed on the raw inode simply pass @nop_mnt_idmap.
  */
 void generic_fillattr(struct mnt_idmap *idmap, u32 request_mask,
 		      struct inode *inode, struct kstat *stat)
@@ -88,15 +57,9 @@ void generic_fillattr(struct mnt_idmap *idmap, u32 request_mask,
 	stat->gid = vfsgid_into_kgid(vfsgid);
 	stat->rdev = inode->i_rdev;
 	stat->size = i_size_read(inode);
-	stat->atime = inode->i_atime;
-
-	if (is_mgtime(inode)) {
-		fill_mg_cmtime(stat, request_mask, inode);
-	} else {
-		stat->mtime = inode->i_mtime;
-		stat->ctime = inode_get_ctime(inode);
-	}
-
+	stat->atime = inode_get_atime(inode);
+	stat->mtime = inode_get_mtime(inode);
+	stat->ctime = inode_get_ctime(inode);
 	stat->blksize = i_blocksize(inode);
 	stat->blocks = inode->i_blocks;
 
@@ -170,7 +133,8 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	idmap = mnt_idmap(path->mnt);
 	if (inode->i_op->getattr)
 		return inode->i_op->getattr(idmap, path, stat,
-					    request_mask, query_flags);
+					    request_mask,
+					    query_flags | AT_GETATTR_NOSEC);
 
 	generic_fillattr(idmap, request_mask, inode, stat);
 	return 0;
@@ -202,6 +166,9 @@ int vfs_getattr(const struct path *path, struct kstat *stat,
 		u32 request_mask, unsigned int query_flags)
 {
 	int retval;
+
+	if (WARN_ON_ONCE(query_flags & AT_GETATTR_NOSEC))
+		return -EPERM;
 
 	retval = security_inode_getattr(path);
 	if (retval)
@@ -280,8 +247,13 @@ retry:
 
 	error = vfs_getattr(&path, stat, request_mask, flags);
 
-	stat->mnt_id = real_mount(path.mnt)->mnt_id;
-	stat->result_mask |= STATX_MNT_ID;
+	if (request_mask & STATX_MNT_ID_UNIQUE) {
+		stat->mnt_id = real_mount(path.mnt)->mnt_id_unique;
+		stat->result_mask |= STATX_MNT_ID_UNIQUE;
+	} else {
+		stat->mnt_id = real_mount(path.mnt)->mnt_id;
+		stat->result_mask |= STATX_MNT_ID;
+	}
 
 	if (path.mnt->mnt_root == path.dentry)
 		stat->attributes |= STATX_ATTR_MOUNT_ROOT;

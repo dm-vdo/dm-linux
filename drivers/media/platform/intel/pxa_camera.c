@@ -2207,7 +2207,7 @@ static int pxa_camera_pdata_from_dt(struct device *dev,
 		pcdev->mclk = mclk_rate;
 	}
 
-	np = of_graph_get_next_endpoint(np, NULL);
+	np = of_graph_get_endpoint_by_regs(np, 0, -1);
 	if (!np) {
 		dev_err(dev, "could not find endpoint\n");
 		return -EINVAL;
@@ -2398,7 +2398,7 @@ static int pxa_camera_probe(struct platform_device *pdev)
 			       PXA_CAM_DRV_NAME, pcdev);
 	if (err) {
 		dev_err(&pdev->dev, "Camera interrupt register failed\n");
-		goto exit_v4l2_device_unregister;
+		goto exit_deactivate;
 	}
 
 	pcdev->notifier.ops = &pxa_camera_sensor_ops;

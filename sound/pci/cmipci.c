@@ -486,10 +486,8 @@ struct cmipci {
 
 	spinlock_t reg_lock;
 
-#ifdef CONFIG_PM_SLEEP
 	unsigned int saved_regs[0x20];
 	unsigned char saved_mixers[0x20];
-#endif
 };
 
 
@@ -3102,11 +3100,13 @@ static int snd_cmipci_create(struct snd_card *card, struct pci_dev *pci,
 	}
 	sprintf(card->shortname, "C-Media CMI%d", val);
 	if (cm->chip_version < 68)
-		sprintf(modelstr, " (model %d)", cm->chip_version);
+		scnprintf(modelstr, sizeof(modelstr),
+			  " (model %d)", cm->chip_version);
 	else
 		modelstr[0] = '\0';
-	sprintf(card->longname, "%s%s at %#lx, irq %i",
-		card->shortname, modelstr, cm->iobase, cm->irq);
+	scnprintf(card->longname, sizeof(card->longname),
+		  "%s%s at %#lx, irq %i",
+		  card->shortname, modelstr, cm->iobase, cm->irq);
 
 	if (cm->chip_version >= 39) {
 		val = snd_cmipci_read_b(cm, CM_REG_MPU_PCI + 1);
@@ -3258,7 +3258,6 @@ static int snd_cmipci_probe(struct pci_dev *pci,
 	return err;
 }
 
-#ifdef CONFIG_PM_SLEEP
 /*
  * power management
  */
@@ -3322,18 +3321,14 @@ static int snd_cmipci_resume(struct device *dev)
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(snd_cmipci_pm, snd_cmipci_suspend, snd_cmipci_resume);
-#define SND_CMIPCI_PM_OPS	&snd_cmipci_pm
-#else
-#define SND_CMIPCI_PM_OPS	NULL
-#endif /* CONFIG_PM_SLEEP */
+static DEFINE_SIMPLE_DEV_PM_OPS(snd_cmipci_pm, snd_cmipci_suspend, snd_cmipci_resume);
 
 static struct pci_driver cmipci_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = snd_cmipci_ids,
 	.probe = snd_cmipci_probe,
 	.driver = {
-		.pm = SND_CMIPCI_PM_OPS,
+		.pm = &snd_cmipci_pm,
 	},
 };
 	
