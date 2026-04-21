@@ -1471,7 +1471,6 @@ int uncompress_data_vio(struct data_vio *data_vio,
 	int size;
 	u16 fragment_offset, fragment_size;
 	struct compressed_block *block = data_vio->compression.block;
-	u8 algorithm_flags;
 	int result = vdo_get_compressed_block_fragment(mapping_state, block,
 						       &fragment_offset, &fragment_size);
 
@@ -1480,16 +1479,9 @@ int uncompress_data_vio(struct data_vio *data_vio,
 		return result;
 	}
 
-	algorithm_flags = block->header.compression_flags & VDO_COMPRESSION_FLAG_MASK;
-	if (algorithm_flags == VDO_COMPRESSION_FLAG_IAA) {
-		result = vdo_iaa_decompress(block->data + fragment_offset,
-					    fragment_size, buffer);
-		if (result != 0) {
-			vdo_log_debug("%s: iaa/zlib decompress error %d", __func__, result);
-			return VDO_INVALID_FRAGMENT;
-		}
+	result = vdo_iaa_decompress(block->data + fragment_offset, fragment_size, buffer);
+	if (result == 0)
 		return VDO_SUCCESS;
-	}
 
 	size = LZ4_decompress_safe(block->data + fragment_offset, buffer,
 				   fragment_size, VDO_BLOCK_SIZE);
@@ -2069,7 +2061,6 @@ static void compress_data_vio(struct vdo_completion *completion)
 					  data_vio->compression.block->data, &size);
 		if (result == 0) {
 			data_vio->compression.size = size;
-			data_vio->compression.algorithm = VDO_COMPRESSION_FLAG_IAA;
 			launch_data_vio_packer_callback(data_vio, pack_compressed_data);
 			return;
 		}
@@ -2081,7 +2072,6 @@ static void compress_data_vio(struct vdo_completion *completion)
 				    (char *) vdo_get_work_queue_private_data());
 	if ((size > 0) && (size < VDO_COMPRESSED_BLOCK_DATA_SIZE)) {
 		data_vio->compression.size = size;
-		data_vio->compression.algorithm = VDO_COMPRESSION_FLAG_LZ4;
 		launch_data_vio_packer_callback(data_vio, pack_compressed_data);
 		return;
 	}

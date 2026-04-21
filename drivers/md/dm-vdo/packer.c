@@ -30,7 +30,7 @@ static const struct version_number COMPRESSED_BLOCK_1_0 = {
 	.minor_version = 0,
 };
 
-#define COMPRESSED_BLOCK_1_0_SIZE (4 + 4 + 1 + 3 + (2 * VDO_MAX_COMPRESSION_SLOTS))
+#define COMPRESSED_BLOCK_1_0_SIZE (4 + 4 + (2 * VDO_MAX_COMPRESSION_SLOTS))
 
 /**
  * vdo_get_compressed_block_fragment() - Get a reference to a compressed fragment from a compressed
@@ -365,7 +365,7 @@ static struct data_vio *remove_from_bin(struct packer *packer, struct packer_bin
  * data field, it needn't be copied. So all we need do is initialize the header and set the size of
  * the agent's fragment.
  */
-static void initialize_compressed_block(struct compressed_block *block, u16 size, u8 algorithm)
+static void initialize_compressed_block(struct compressed_block *block, u16 size)
 {
 	/*
 	 * Make sure the block layout isn't accidentally changed by changing the length of the
@@ -374,8 +374,6 @@ static void initialize_compressed_block(struct compressed_block *block, u16 size
 	BUILD_BUG_ON(sizeof(struct compressed_block_header) != COMPRESSED_BLOCK_1_0_SIZE);
 
 	block->header.version = vdo_pack_version_number(COMPRESSED_BLOCK_1_0);
-	block->header.compression_flags = algorithm;
-	memset(block->header.reserved, 0, sizeof(block->header.reserved));
 	block->header.sizes[0] = __cpu_to_le16(size);
 }
 
@@ -440,7 +438,7 @@ static void write_bin(struct packer *packer, struct packer_bin *bin)
 	compression = &agent->compression;
 	compression->slot = 0;
 	block = compression->block;
-	initialize_compressed_block(block, compression->size, compression->algorithm);
+	initialize_compressed_block(block, compression->size);
 	offset = compression->size;
 
 	while ((client = remove_from_bin(packer, bin)) != NULL)

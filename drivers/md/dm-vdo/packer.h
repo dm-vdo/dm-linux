@@ -24,21 +24,9 @@ struct compressed_block_header {
 	/* Unsigned 32-bit major and minor versions, little-endian */
 	struct packed_version_number version;
 
-	/* Compression algorithm flags: bit 0 = IAA used, other bits reserved */
-	u8 compression_flags;
-
-	/* Reserved for future use */
-	u8 reserved[3];
-
 	/* List of unsigned 16-bit compressed block sizes, little-endian */
 	__le16 sizes[VDO_MAX_COMPRESSION_SLOTS];
 } __packed;
-
-enum {
-	VDO_COMPRESSION_FLAG_LZ4 = 0x00,
-	VDO_COMPRESSION_FLAG_IAA = 0x01,
-	VDO_COMPRESSION_FLAG_MASK = 0x0F,
-};
 
 enum {
 	VDO_COMPRESSED_BLOCK_DATA_SIZE = VDO_BLOCK_SIZE - sizeof(struct compressed_block_header),

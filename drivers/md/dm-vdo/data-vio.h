@@ -121,9 +121,6 @@ struct compression_state {
 	/* The compressed size of this block */
 	u16 size;
 
-	/* The compression algorithm used for this fragment. */
-	u8 algorithm;
-
 	/* The packer input or output bin slot which holds the enclosing data_vio */
 	slot_number_t slot;
 
