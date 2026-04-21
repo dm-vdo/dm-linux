@@ -5,8 +5,12 @@ config DM_VDO
 	depends on 64BIT
 	depends on BLK_DEV_DM
 	select DM_BUFIO
+	select CRYPTO
+	select CRYPTO_DEFLATE
 	select LZ4_COMPRESS
 	select LZ4_DECOMPRESS
+	select ZLIB_DEFLATE
+	select ZLIB_INFLATE
 	help
 	  This device mapper target presents a block device with
 	  deduplication, compression and thin-provisioning.

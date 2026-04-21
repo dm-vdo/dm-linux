@@ -121,6 +121,9 @@ struct compression_state {
 	/* The compressed size of this block */
 	u16 size;
 
+	/* The compression algorithm used for this fragment. */
+	u8 algorithm;
+
 	/* The packer input or output bin slot which holds the enclosing data_vio */
 	slot_number_t slot;
 
@@ -656,6 +659,10 @@ void data_vio_allocate_data_block(struct data_vio *data_vio,
 				  vdo_action_fn callback, vdo_action_fn error_handler);
 
 void release_data_vio_allocation_lock(struct data_vio *data_vio, bool reset);
+
+extern bool vdo_iaa_enabled;
+int __must_check vdo_iaa_init(void);
+void vdo_iaa_cleanup(void);
 
 int __must_check uncompress_data_vio(struct data_vio *data_vio,
 				     enum block_mapping_state mapping_state,

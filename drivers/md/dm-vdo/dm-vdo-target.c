@@ -2849,6 +2849,29 @@ static struct target_type vdo_target_bio = {
 
 static bool dm_registered;
 
+static int vdo_iaa_enabled_set(const char *value, const struct kernel_param *kp)
+{
+	bool enabled;
+	int result;
+
+	result = kstrtobool(value, &enabled);
+	if (result != 0)
+		return result;
+
+	vdo_iaa_enabled = enabled;
+	return 0;
+}
+
+static int vdo_iaa_enabled_get(char *buffer, const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%u\n", vdo_iaa_enabled ? 1 : 0);
+}
+
+static const struct kernel_param_ops vdo_iaa_enabled_ops = {
+	.set = vdo_iaa_enabled_set,
+	.get = vdo_iaa_enabled_get,
+};
+
 static void vdo_module_destroy(void)
 {
 	vdo_log_debug("unloading");
@@ -2869,6 +2892,12 @@ static int __init vdo_init(void)
 
 	/* Memory tracking must be initialized first for accurate accounting. */
 	vdo_memory_init();
+	result = vdo_iaa_init();
+	if (result != 0) {
+		vdo_log_info("IAA compression initialization failed (%d), will use LZ4 only",
+			     result);
+		result = 0;
+	}
 	vdo_initialize_threads_mutex();
 	vdo_initialize_thread_device_registry();
 	vdo_initialize_device_registry_once();
@@ -2894,6 +2923,7 @@ static int __init vdo_init(void)
 
 static void __exit vdo_exit(void)
 {
+	vdo_iaa_cleanup();
 	vdo_module_destroy();
 	/* Memory tracking cleanup must be done last. */
 	vdo_memory_exit();
@@ -2904,6 +2934,8 @@ module_exit(vdo_exit);
 
 module_param_named(log_level, vdo_log_level, uint, 0644);
 MODULE_PARM_DESC(log_level, "Log level for log messages");
+module_param_cb(iaa_enabled, &vdo_iaa_enabled_ops, NULL, 0644);
+MODULE_PARM_DESC(iaa_enabled, "Enable IAA compression for VDO writes");
 
 MODULE_DESCRIPTION(DM_NAME " target for transparent deduplication");
 MODULE_AUTHOR("Red Hat, Inc.");

@@ -13,11 +13,17 @@
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/crypto.h>
 #include <linux/lz4.h>
 #include <linux/minmax.h>
 #include <linux/sched.h>
+#include <linux/scatterlist.h>
 #include <linux/spinlock.h>
 #include <linux/wait.h>
+#include <linux/vmalloc.h>
+#include <linux/zlib.h>
+#include <crypto/acompress.h>
+#include <crypto/internal/acompress.h>
 
 #include "logger.h"
 #include "memory-alloc.h"
@@ -70,6 +76,27 @@
  *   prioritization.
  */
 static blk_opf_t PASSTHROUGH_FLAGS = (REQ_PRIO | REQ_META | REQ_SYNC | REQ_RAHEAD);
+
+struct vdo_iaa_ctx {
+	struct crypto_acomp *acomp;
+	struct acomp_req *req;
+	struct crypto_wait wait;
+	bool initialized;
+};
+
+struct vdo_zlib_inflate_ctx {
+	struct z_stream_s stream;
+	void *workspace;
+	bool initialized;
+};
+
+static struct vdo_iaa_ctx __percpu *vdo_iaa_ctx;
+static struct vdo_zlib_inflate_ctx __percpu *vdo_zlib_inflate_ctx;
+bool vdo_iaa_enabled;
+
+static int vdo_iaa_compress(const char *src, char *dst, int *compressed_size);
+static int vdo_iaa_decompress(const char *src, int src_len, char *dst);
+static int vdo_zlib_inflate(const char *src, int src_len, char *dst);
 
 /**
  * DOC:
@@ -1444,6 +1471,7 @@ int uncompress_data_vio(struct data_vio *data_vio,
 	int size;
 	u16 fragment_offset, fragment_size;
 	struct compressed_block *block = data_vio->compression.block;
+	u8 algorithm_flags;
 	int result = vdo_get_compressed_block_fragment(mapping_state, block,
 						       &fragment_offset, &fragment_size);
 
@@ -1452,7 +1480,18 @@ int uncompress_data_vio(struct data_vio *data_vio,
 		return result;
 	}
 
-	size = LZ4_decompress_safe((block->data + fragment_offset), buffer,
+	algorithm_flags = block->header.compression_flags & VDO_COMPRESSION_FLAG_MASK;
+	if (algorithm_flags == VDO_COMPRESSION_FLAG_IAA) {
+		result = vdo_iaa_decompress(block->data + fragment_offset,
+					    fragment_size, buffer);
+		if (result != 0) {
+			vdo_log_debug("%s: iaa/zlib decompress error %d", __func__, result);
+			return VDO_INVALID_FRAGMENT;
+		}
+		return VDO_SUCCESS;
+	}
+
+	size = LZ4_decompress_safe(block->data + fragment_offset, buffer,
 				   fragment_size, VDO_BLOCK_SIZE);
 	if (size != VDO_BLOCK_SIZE) {
 		vdo_log_debug("%s: lz4 error", __func__);
@@ -1759,6 +1798,255 @@ static void pack_compressed_data(struct vdo_completion *completion)
 	vdo_attempt_packing(data_vio);
 }
 
+static void vdo_iaa_cleanup_cpu_ctx(struct vdo_iaa_ctx *ctx)
+{
+	if (ctx->req != NULL)
+		acomp_request_free(vdo_forget(ctx->req));
+	if (ctx->acomp != NULL)
+		crypto_free_acomp(vdo_forget(ctx->acomp));
+	ctx->initialized = false;
+}
+
+static void vdo_zlib_cleanup_cpu_ctx(struct vdo_zlib_inflate_ctx *ctx)
+{
+	if (!ctx->initialized)
+		return;
+
+	zlib_inflateEnd(&ctx->stream);
+	vfree(vdo_forget(ctx->workspace));
+	memset(&ctx->stream, 0, sizeof(ctx->stream));
+	ctx->initialized = false;
+}
+
+static int vdo_iaa_init_cpu_ctx(void)
+{
+	struct vdo_iaa_ctx *ctx = this_cpu_ptr(vdo_iaa_ctx);
+	const char *driver_name;
+
+	if (ctx->initialized)
+		return 0;
+
+	ctx->acomp = crypto_alloc_acomp("deflate-iaa", 0, 0);
+	if (IS_ERR(ctx->acomp)) {
+		int result = PTR_ERR(ctx->acomp);
+
+		ctx->acomp = NULL;
+		return result;
+	}
+
+	driver_name = crypto_tfm_alg_driver_name(crypto_acomp_tfm(ctx->acomp));
+	if (strcmp(driver_name, "deflate-iaa") != 0) {
+		vdo_log_warning("IAA compressor resolved to unexpected driver %s",
+				driver_name);
+		vdo_iaa_cleanup_cpu_ctx(ctx);
+		return -ENODEV;
+	}
+
+	ctx->req = acomp_request_alloc(ctx->acomp);
+	if (ctx->req == NULL) {
+		vdo_iaa_cleanup_cpu_ctx(ctx);
+		return -ENOMEM;
+	}
+
+	crypto_init_wait(&ctx->wait);
+	acomp_request_set_callback(ctx->req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+				   crypto_req_done, &ctx->wait);
+	ctx->initialized = true;
+	return 0;
+}
+
+static int vdo_zlib_init_cpu_ctx(struct vdo_zlib_inflate_ctx *ctx)
+{
+	int result;
+
+	if (ctx->initialized)
+		return 0;
+
+	ctx->workspace = vzalloc(zlib_inflate_workspacesize());
+	if (ctx->workspace == NULL)
+		return -ENOMEM;
+
+	ctx->stream.workspace = ctx->workspace;
+	result = zlib_inflateInit2(&ctx->stream, -12);
+	if (result != Z_OK) {
+		vdo_zlib_cleanup_cpu_ctx(ctx);
+		return -EINVAL;
+	}
+
+	ctx->initialized = true;
+	return 0;
+}
+
+static int vdo_iaa_compress(const char *src, char *dst, int *compressed_size)
+{
+	struct vdo_iaa_ctx *ctx;
+	struct scatterlist input, output;
+	int result;
+	unsigned int dlen = VDO_MAX_COMPRESSED_FRAGMENT_SIZE;
+
+	if (!vdo_iaa_enabled || (vdo_iaa_ctx == NULL))
+		return -ENODEV;
+
+	ctx = get_cpu_ptr(vdo_iaa_ctx);
+	if (!ctx->initialized) {
+		result = vdo_iaa_init_cpu_ctx();
+		if (result != 0) {
+			put_cpu_ptr(vdo_iaa_ctx);
+			return result;
+		}
+	}
+
+	sg_init_one(&input, src, VDO_BLOCK_SIZE);
+	sg_init_one(&output, dst, VDO_COMPRESSED_BLOCK_DATA_SIZE);
+	acomp_request_set_params(ctx->req, &input, &output, VDO_BLOCK_SIZE, dlen);
+	result = crypto_wait_req(crypto_acomp_compress(ctx->req), &ctx->wait);
+	if (result == 0) {
+		dlen = ctx->req->dlen;
+		if ((dlen > 0) && (dlen < VDO_COMPRESSED_BLOCK_DATA_SIZE)) {
+			*compressed_size = dlen;
+		} else {
+			result = -E2BIG;
+		}
+	}
+
+	put_cpu_ptr(vdo_iaa_ctx);
+	return result;
+}
+
+static int vdo_decompress_iaa_with_ctx(struct vdo_iaa_ctx *ctx, const char *src,
+				       int src_len, char *dst)
+{
+	struct scatterlist input, output;
+	int result;
+
+	sg_init_one(&input, src, src_len);
+	sg_init_one(&output, dst, VDO_BLOCK_SIZE);
+	acomp_request_set_params(ctx->req, &input, &output, src_len, VDO_BLOCK_SIZE);
+	result = crypto_wait_req(crypto_acomp_decompress(ctx->req), &ctx->wait);
+	if (result != 0)
+		return result;
+
+	if (ctx->req->dlen != VDO_BLOCK_SIZE)
+		return -EINVAL;
+
+	return 0;
+}
+
+static int vdo_zlib_inflate(const char *src, int src_len, char *dst)
+{
+	struct vdo_zlib_inflate_ctx *ctx;
+	int result;
+	u8 zerostuff = 0;
+
+	if (vdo_zlib_inflate_ctx == NULL)
+		return -ENODEV;
+
+	ctx = get_cpu_ptr(vdo_zlib_inflate_ctx);
+	if (!ctx->initialized) {
+		result = vdo_zlib_init_cpu_ctx(ctx);
+		if (result != 0) {
+			put_cpu_ptr(vdo_zlib_inflate_ctx);
+			return result;
+		}
+	}
+
+	result = zlib_inflateReset(&ctx->stream);
+	if (result != Z_OK) {
+		put_cpu_ptr(vdo_zlib_inflate_ctx);
+		return -EINVAL;
+	}
+
+	ctx->stream.next_in = (u8 *)src;
+	ctx->stream.avail_in = src_len;
+	ctx->stream.next_out = dst;
+	ctx->stream.avail_out = VDO_BLOCK_SIZE;
+
+	result = zlib_inflate(&ctx->stream, Z_SYNC_FLUSH);
+	if (result == Z_OK && !ctx->stream.avail_in && ctx->stream.avail_out) {
+		ctx->stream.next_in = &zerostuff;
+		ctx->stream.avail_in = 1;
+		result = zlib_inflate(&ctx->stream, Z_FINISH);
+	}
+
+	if (result != Z_STREAM_END || ctx->stream.total_out != VDO_BLOCK_SIZE) {
+		put_cpu_ptr(vdo_zlib_inflate_ctx);
+		return -EINVAL;
+	}
+
+	put_cpu_ptr(vdo_zlib_inflate_ctx);
+	return 0;
+}
+
+static int vdo_iaa_decompress(const char *src, int src_len, char *dst)
+{
+	struct vdo_iaa_ctx *ctx;
+	int result;
+
+	if (vdo_iaa_enabled && (vdo_iaa_ctx != NULL)) {
+		ctx = get_cpu_ptr(vdo_iaa_ctx);
+		if (!ctx->initialized) {
+			result = vdo_iaa_init_cpu_ctx();
+			if (result != 0) {
+				put_cpu_ptr(vdo_iaa_ctx);
+				return vdo_zlib_inflate(src, src_len, dst);
+			}
+		}
+
+		result = vdo_decompress_iaa_with_ctx(ctx, src, src_len, dst);
+		put_cpu_ptr(vdo_iaa_ctx);
+		if (result == 0)
+			return 0;
+	}
+
+	return vdo_zlib_inflate(src, src_len, dst);
+}
+
+int vdo_iaa_init(void)
+{
+	int cpu;
+
+	vdo_iaa_ctx = alloc_percpu(struct vdo_iaa_ctx);
+	if (vdo_iaa_ctx == NULL)
+		return -ENOMEM;
+
+	vdo_zlib_inflate_ctx = alloc_percpu(struct vdo_zlib_inflate_ctx);
+	if (vdo_zlib_inflate_ctx == NULL) {
+		free_percpu(vdo_iaa_ctx);
+		vdo_iaa_ctx = NULL;
+		return -ENOMEM;
+	}
+
+	for_each_possible_cpu(cpu) {
+		struct vdo_iaa_ctx *ctx = per_cpu_ptr(vdo_iaa_ctx, cpu);
+		struct vdo_zlib_inflate_ctx *zctx = per_cpu_ptr(vdo_zlib_inflate_ctx, cpu);
+
+		memset(ctx, 0, sizeof(*ctx));
+		memset(zctx, 0, sizeof(*zctx));
+	}
+
+	return 0;
+}
+
+void vdo_iaa_cleanup(void)
+{
+	int cpu;
+
+	if (vdo_iaa_ctx == NULL)
+		return;
+
+	for_each_possible_cpu(cpu)
+		vdo_iaa_cleanup_cpu_ctx(per_cpu_ptr(vdo_iaa_ctx, cpu));
+	for_each_possible_cpu(cpu)
+		vdo_zlib_cleanup_cpu_ctx(per_cpu_ptr(vdo_zlib_inflate_ctx, cpu));
+
+	free_percpu(vdo_iaa_ctx);
+	if (vdo_zlib_inflate_ctx != NULL)
+		free_percpu(vdo_zlib_inflate_ctx);
+	vdo_iaa_ctx = NULL;
+	vdo_zlib_inflate_ctx = NULL;
+	vdo_iaa_enabled = false;
+}
+
 /**
  * compress_data_vio() - Do the actual work of compressing the data on a CPU queue.
  *
@@ -1768,6 +2056,7 @@ static void compress_data_vio(struct vdo_completion *completion)
 {
 	struct data_vio *data_vio = as_data_vio(completion);
 	int size;
+	int result;
 
 	assert_data_vio_on_cpu_thread(data_vio);
 
@@ -1775,12 +2064,24 @@ static void compress_data_vio(struct vdo_completion *completion)
 	 * By putting the compressed data at the start of the compressed block data field, we won't
 	 * need to copy it if this data_vio becomes a compressed write agent.
 	 */
+	if (vdo_iaa_enabled) {
+		result = vdo_iaa_compress(data_vio->vio.data,
+					  data_vio->compression.block->data, &size);
+		if (result == 0) {
+			data_vio->compression.size = size;
+			data_vio->compression.algorithm = VDO_COMPRESSION_FLAG_IAA;
+			launch_data_vio_packer_callback(data_vio, pack_compressed_data);
+			return;
+		}
+	}
+
 	size = LZ4_compress_default(data_vio->vio.data,
 				    data_vio->compression.block->data, VDO_BLOCK_SIZE,
 				    VDO_MAX_COMPRESSED_FRAGMENT_SIZE,
 				    (char *) vdo_get_work_queue_private_data());
 	if ((size > 0) && (size < VDO_COMPRESSED_BLOCK_DATA_SIZE)) {
 		data_vio->compression.size = size;
+		data_vio->compression.algorithm = VDO_COMPRESSION_FLAG_LZ4;
 		launch_data_vio_packer_callback(data_vio, pack_compressed_data);
 		return;
 	}
